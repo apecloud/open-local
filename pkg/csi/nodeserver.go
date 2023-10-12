@@ -644,7 +644,33 @@ func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishV
 	qosClass := pod.Status.QOSClass
 
 	// get cgroup version
-	getCgroupVersion := func() string {
+	getCgroupVersionByFsType := func() string {
+		// by default, return "v1"
+		var cgroupVersion string = "v1"
+
+		var getFsTypeCmd = "stat -fc %T /sys/fs/cgroup"
+		out, err := exec.Command("sh", "-c", getFsTypeCmd).CombinedOutput()
+		fsType := strings.TrimSpace(string(out))
+
+		if err != nil {
+			log.Errorf("get cgroup version with command %s failed: %s", getFsTypeCmd, err.Error())
+			return cgroupVersion
+		}
+
+		if fsType == "tmpfs" { // tmpfs is cgroup v1
+			cgroupVersion = "v1"
+		} else if fsType == "cgroup2fs" {
+			cgroupVersion = "v2"
+		} else {
+			log.Warning("fs type of /sys/fs/cgroup is %s, try to support it.", fsType)
+		}
+
+		log.Info("get cgroup version by fstype %s, cgroupversion is set to %s", fsType, cgroupVersion)
+		return cgroupVersion
+	}
+
+	// get cgroup version
+	getCgroupVersionByProcFs := func() string {
 		var fsPath string = "/proc/filesystems"
 		// by default, return "v1"
 		var cgroupVersion string = "v1"
@@ -727,7 +753,10 @@ func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishV
 		return cmdArray
 	}
 
-	cgroupVersion := getCgroupVersion()
+	// used to mute the unused function warning
+	_ = getCgroupVersionByProcFs() 
+
+	cgroupVersion := getCgroupVersionByFsType()
 	blkioPath := getBlkioPath(cgroupVersion)
 
 	log.Infof("pod(volume id %s) qosClass: %s", volumeID, qosClass)
