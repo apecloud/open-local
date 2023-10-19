@@ -21,8 +21,8 @@ const (
 )
 
 var Cmd = &cobra.Command{
-	Use:   "host path provisioner",
-	Short: "command for provisioning local pv",
+	Use:   "hostpath",
+	Short: "command for provisioning hostpath localpv",
 	Run: func(cmd *cobra.Command, args []string) {
 		err := Start(&opt)
 		if err != nil {
