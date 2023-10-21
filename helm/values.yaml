@@ -1,5 +1,6 @@
 name: open-local
 namespace: kube-system
+# TODO(x.zhou): change the domain
 driver: local.csi.aliyun.com
 customLabels: {}
 images:
@@ -54,6 +55,8 @@ storageclass:
     name: open-local-device-ssd
   device_hdd:
     name: open-local-device-hdd
+  hostpath:
+    name: open-local-hostpath
 monitor:
   # install grafana dashboard
   enabled: false

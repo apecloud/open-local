@@ -57,7 +57,7 @@ kind: StorageClass
 metadata:
   name: {{ .Values.storageclass.lvm_throttle.name }}
 {{ include "local.labels" . | indent 2 }}
-provisioner: local.csi.aliyun.com
+provisioner: {{ .Values.driver }}
 parameters:
   volumeType: "LVM"
   bps: "1048576"
@@ -65,6 +65,21 @@ parameters:
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageclass.hostpath.name }}
+  annotations:
+    local.csi.aliyun.com/config: |
+      - name: BasePath
+        value: /var/open-local/local
+{{ include "local.labels" . | indent 2 }}
+provisioner: {{ .Values.driver }}-hostpath
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+# TODO(x.zhou): allow volume expansion
+allowVolumeExpansion: false
 ---
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
