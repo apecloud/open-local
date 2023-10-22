@@ -74,10 +74,9 @@ type HelperPodOptions struct {
 func (pOpts *HelperPodOptions) validate() error {
 	if pOpts.name == "" ||
 		pOpts.path == "" ||
-		pOpts.nodeAffinityLabels == nil ||
 		len(pOpts.nodeAffinityLabels) == 0 ||
 		pOpts.serviceAccountName == "" {
-		return errors.Errorf("invalid empty name or hostpath or hostname or service account name")
+		return errors.Errorf("invalid empty name or hostpath or hostname or service account name, %+v", pOpts)
 	}
 	return nil
 }

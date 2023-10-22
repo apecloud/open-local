@@ -75,7 +75,7 @@ metadata:
       - name: BasePath
         value: /var/open-local/local
 {{ include "local.labels" . | indent 2 }}
-provisioner: {{ .Values.driver }}-hostpath
+provisioner: {{ .Values.driver }}/hostpath
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 # TODO(x.zhou): allow volume expansion
