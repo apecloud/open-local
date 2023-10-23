@@ -20,7 +20,7 @@ spec:
       - name: provisioner-hostpath
         args:
         - provisioner
-        - --provisioner={{ .Values.driver }}/hostpath
+        - --name={{ .Values.driver }}/hostpath
         image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         resources:

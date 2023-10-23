@@ -29,6 +29,7 @@ import (
 	pvController "sigs.k8s.io/sig-storage-lib-external-provisioner/v9/controller"
 
 	"github.com/alibaba/open-local/pkg/provisioner"
+	"github.com/alibaba/open-local/pkg/signals"
 )
 
 const (
@@ -75,10 +76,6 @@ func Start(cmd *cobra.Command) error {
 		return errors.Wrap(err, "unable to get k8s client")
 	}
 
-	//Create a context to receive shutdown signal to help
-	// with graceful exit of the provisioner.
-	ctx := context.Background()
-
 	//Create an instance of ProvisionerHandler to handle PV
 	// create and delete events.
 	provisioner, err := provisioner.NewProvisioner(kubeClient)
@@ -91,10 +88,18 @@ func Start(cmd *cobra.Command) error {
 	// events and invokes the Provisioner Handler.
 	pc := pvController.NewProvisionController(
 		kubeClient,
-		opt.Provisioner,
+		opt.ProvisionerName,
 		provisioner,
 		pvController.LeaderElection(isLeaderElectionEnabled()),
 	)
+
+	// Set up signals so we handle the first shutdown signal gracefully
+	stopCh := signals.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-stopCh
+		cancel()
+	}()
 
 	klog.V(4).Info("Provisioner started")
 	//Run the provisioner till a shutdown signal is received.

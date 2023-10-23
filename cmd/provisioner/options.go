@@ -21,13 +21,13 @@ import (
 )
 
 type provisionerOptions struct {
-	Master      string
-	Kubeconfig  string
-	Provisioner string
+	Master          string
+	Kubeconfig      string
+	ProvisionerName string
 }
 
 func (option *provisionerOptions) addFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&option.Kubeconfig, "kubeconfig", option.Kubeconfig, "Path to the kubeconfig file to use.")
 	fs.StringVar(&option.Master, "master", option.Master, "URL/IP for master.")
-	fs.StringVar(&option.Provisioner, "provisioner", defaultProvisionerName, "the name of the provisioner")
+	fs.StringVar(&option.ProvisionerName, "name", defaultProvisionerName, "The name of the provisioner")
 }

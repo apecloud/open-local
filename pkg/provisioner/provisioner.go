@@ -1,5 +1,6 @@
 /*
-Copyright (c) 2023 ApeCloud, Inc. All rights reserved.
+Copyright 2019 The OpenEBS Authors.
+Portions Copyright (c) 2023 ApeCloud, Inc. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -52,13 +53,6 @@ func NewProvisioner(kubeClient *clientset.Clientset) (*Provisioner, error) {
 	p.getVolumeConfig = p.GetVolumeConfig
 
 	return p, nil
-}
-
-// SupportsBlock will be used by controller to determine if block mode is
-//
-//	supported by the host path provisioner.
-func (p *Provisioner) SupportsBlock(_ context.Context) bool {
-	return true
 }
 
 // Provision is invoked by the PVC controller which expect the PV

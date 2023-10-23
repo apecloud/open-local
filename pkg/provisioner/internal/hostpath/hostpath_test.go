@@ -1,5 +1,6 @@
 /*
-Copyright (c) 2023 ApeCloud, Inc. All rights reserved.
+Copyright 2019 The OpenEBS Authors.
+Portions Copyright (c) 2023 ApeCloud, Inc. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,6 +14,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// This code was taken from https://github.com/openebs/maya/blob/bd98908028af/pkg/hostpath/v1alpha1/hostpath_test.go
 
 package hostpath
 
