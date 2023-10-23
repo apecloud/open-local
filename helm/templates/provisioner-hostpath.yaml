@@ -15,6 +15,7 @@ spec:
 {{ include "local.labels" . | indent 6 }}
         app.kubernetes.io/component: {{ .Values.name }}-provisioner-hostpath
     spec:
+      serviceAccountName: {{ .Values.name }}
       containers:
       - name: provisioner-hostpath
         args:
