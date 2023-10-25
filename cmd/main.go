@@ -25,6 +25,7 @@ import (
 	"github.com/alibaba/open-local/cmd/controller"
 	"github.com/alibaba/open-local/cmd/csi"
 	"github.com/alibaba/open-local/cmd/doc"
+	"github.com/alibaba/open-local/cmd/provisioner"
 	"github.com/alibaba/open-local/cmd/scheduler"
 	"github.com/alibaba/open-local/cmd/version"
 	"github.com/alibaba/open-local/pkg/utils"
@@ -56,6 +57,7 @@ func addCommands() {
 		scheduler.Cmd,
 		csi.Cmd,
 		controller.Cmd,
+		provisioner.Cmd,
 		version.Cmd,
 		doc.Cmd.Cmd,
 	)

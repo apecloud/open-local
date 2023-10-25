@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+{{ include "local.labels" . | indent 2 }}
+    app.kubernetes.io/component: {{ .Values.name }}-provisioner-hostpath
+  name: {{ .Values.name }}-provisioner-hostpath
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: {{ .Values.name }}-provisioner-hostpath
+  template:
+    metadata:
+{{ include "local.labels" . | indent 6 }}
+        app.kubernetes.io/component: {{ .Values.name }}-provisioner-hostpath
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      containers:
+      - name: provisioner-hostpath
+        args:
+        - provisioner
+        - --name={{ .Values.driver }}/hostpath
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        env:
+        - name: TZ
+          value: Asia/Shanghai
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
