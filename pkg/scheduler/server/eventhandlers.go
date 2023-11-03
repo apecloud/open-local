@@ -456,10 +456,10 @@ func (e *ExtenderServer) onPodUpdate(_, newObj interface{}) {
 					delete(pvcCloned.Annotations, pkg.AnnoSelectedNode)
 					_, err := e.kubeClient.CoreV1().PersistentVolumeClaims(pvcCloned.Namespace).Update(context.Background(), pvcCloned, v1.UpdateOptions{})
 					if err != nil {
-						log.Warningf("failed to remove %s from pvc %s: ", pkg.AnnoSelectedNode, utils.PVCName(pvc))
+						log.Warningf("failed to remove %s from pvc %s: ", pkg.AnnoSelectedNode, utils.PVCName(pvcCloned))
 						return
 					}
-					log.Infof("successfully removed selected-node %q from pvc %s", oldNode, utils.PVCName(pvc))
+					log.Infof("successfully removed selected-node %q from pvc %s", oldNode, utils.PVCName(pvcCloned))
 				}(pvc.DeepCopy()) // make a copy to avoid modifying cache incidentally
 			}
 		}
