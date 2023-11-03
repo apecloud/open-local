@@ -1,70 +1,38 @@
-name: Release
+name: Release Image
 
 on:
   push:
     tags:
-      - 'v*'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+      - v*
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: "The tag of open-local image"
+        required: true
+        default: ''
 
 jobs:
-  docker-build:
+  image-tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag-name: ${{ steps.get_tag_name.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+      - name: Get Tag Name
+        id: get_tag_name
+        run: |
+          TAG_NAME="${{ inputs.image-tag }}"
+          if [[ -z "${{ inputs.image-tag }}" ]]; then
+              RELEASE_VERSION=${GITHUB_REF#refs/tags/}
+              TAG_NAME=${RELEASE_VERSION}
+          fi
+          echo tag_name=$TAG_NAME >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: Cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-      - name: Docker amd64 meta
-        id: meta-amd64
-        uses: docker/metadata-action@v3
-        with:
-          images: thebeatles1994/open-local
-          tags: |
-            type=ref,event=tag
-      - name: Docker arm64 meta
-        id: meta-arm64
-        uses: docker/metadata-action@v3
-        with:
-          images: thebeatles1994/open-local
-          tags: |
-            type=ref,event=tag,suffix=-arm64
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-      - name: Build and push amd64
-        uses: docker/build-push-action@v2.5.0
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
-          tags: |
-            ${{ steps.meta-amd64.outputs.tags }}
-      - name: Build and push arm64
-        uses: docker/build-push-action@v2.5.0
-        with:
-          context: .
-          file: ./Dockerfile.arm64
-          platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
-          tags: |
-            ${{ steps.meta-arm64.outputs.tags }}-arm64
+  release-image:
+    needs: [ image-tag ]
+    uses: apecloud/apecloud-cd/.github/workflows/release-image-cache.yml@v0.1.27
+    with:
+      IMG: "apecloud/open-local"
+      VERSION: "${{ needs.image-tag.outputs.tag-name }}"
+      GO_VERSION: "1.21"
+      DOCKERFILE_PATH: "./Dockerfile"
+    secrets: inherit
