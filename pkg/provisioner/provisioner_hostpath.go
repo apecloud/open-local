@@ -83,7 +83,51 @@ func (p *Provisioner) ProvisionHostPath(ctx context.Context, opts pvController.P
 		return nil, pvController.ProvisioningFinished, iErr
 	}
 
-	// TODO(x.zhou): set the usage quota
+	if volumeConfig.IsXfsQuotaEnabled() {
+		softLimitGrace := volumeConfig.getDataField(KeyXFSQuota, KeyQuotaSoftLimit)
+		hardLimitGrace := volumeConfig.getDataField(KeyXFSQuota, KeyQuotaHardLimit)
+		pvcStorage := opts.PVC.Spec.Resources.Requests.Storage().Value()
+
+		podOpts := &HelperPodOptions{
+			name:               name,
+			path:               path,
+			nodeAffinityLabels: nodeAffinityLabels,
+			serviceAccountName: saName,
+			selectedNodeTaints: taints,
+			imagePullSecrets:   imagePullSecrets,
+			softLimitGrace:     softLimitGrace,
+			hardLimitGrace:     hardLimitGrace,
+			pvcStorage:         pvcStorage,
+		}
+		iErr := p.createQuotaPod(ctx, podOpts)
+		if iErr != nil {
+			klog.Infof("Applying quota failed: %v", iErr)
+			return nil, pvController.ProvisioningFinished, iErr
+		}
+	}
+
+	if volumeConfig.IsExt4QuotaEnabled() {
+		softLimitGrace := volumeConfig.getDataField(KeyEXT4Quota, KeyQuotaSoftLimit)
+		hardLimitGrace := volumeConfig.getDataField(KeyEXT4Quota, KeyQuotaHardLimit)
+		pvcStorage := opts.PVC.Spec.Resources.Requests.Storage().Value()
+
+		podOpts := &HelperPodOptions{
+			name:               name,
+			path:               path,
+			nodeAffinityLabels: nodeAffinityLabels,
+			serviceAccountName: saName,
+			selectedNodeTaints: taints,
+			imagePullSecrets:   imagePullSecrets,
+			softLimitGrace:     softLimitGrace,
+			hardLimitGrace:     hardLimitGrace,
+			pvcStorage:         pvcStorage,
+		}
+		iErr := p.createQuotaPod(ctx, podOpts)
+		if iErr != nil {
+			klog.Infof("Applying quota failed: %v", iErr)
+			return nil, pvController.ProvisioningFinished, iErr
+		}
+	}
 
 	// VolumeMode will always be specified as Filesystem for host path volume,
 	// and the value passed in from the PVC spec will be ignored.
