@@ -213,7 +213,7 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 func (pOpts *HelperPodOptions) validateLimits() error {
 	if pOpts.softLimitGrace == "0k" &&
 		pOpts.hardLimitGrace == "0k" {
-		// Hack: using convertToK() style converstion
+		// Hack: using convertToK() style conversion
 		// TODO: Refactor this section of the code
 		pvcStorageInK := math.Ceil(float64(pOpts.pvcStorage) / 1024)
 		pvcStorageInKString := strconv.FormatFloat(pvcStorageInK, 'f', -1, 64) + "k"
