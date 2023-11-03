@@ -224,40 +224,6 @@ func (c *VolumeConfig) getValue(key string) string {
 	return ""
 }
 
-// Similar to getValue() above. Returns value of the
-// 'Enabled' parameter.
-func (c *VolumeConfig) getEnabled(key string) string {
-	if configObj, ok := GetNestedField(c.options, key).(map[string]string); ok {
-		if val, p := configObj["enabled"]; p {
-			return val
-		}
-	}
-	return ""
-}
-
-// This is similar to getValue() and getEnabled().
-// This gets the value for a specific
-// 'Data' parameter key-value pair.
-func (c *VolumeConfig) getDataField(key string, dataKey string) string {
-	if configData, ok := GetNestedField(c.configData, key).(map[string]string); ok {
-		if val, p := configData[dataKey]; p {
-			return val
-		}
-	}
-	//Default case
-	return ""
-}
-
-// This is similar to getValue() and getEnabled().
-// This returns the value of the `Data` parameter
-func (c *VolumeConfig) getData(key string) map[string]string {
-	if configData, ok := GetNestedField(c.configData, key).(map[string]string); ok {
-		return configData
-	}
-	//Default case
-	return nil
-}
-
 // This gets the list of values for the 'List' parameter.
 func (c *VolumeConfig) getList(key string) []string {
 	if listValues, ok := GetNestedField(c.configList, key).([]string); ok {
