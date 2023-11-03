@@ -30,7 +30,7 @@ RUN --mount=type=bind,target=. \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} OUTPUT_DIR=/out make build
 
 FROM alpine:3.18
-LABEL maintainers="Alibaba Cloud Authors"
+LABEL maintainers="Apecloud Cloud Authors"
 LABEL description="open-local is a local disk management system"
 RUN apk add --no-cache util-linux coreutils e2fsprogs e2fsprogs-extra xfsprogs xfsprogs-extra blkid file open-iscsi jq
 COPY --from=builder /out/open-local /bin/open-local
