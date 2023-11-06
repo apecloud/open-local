@@ -81,6 +81,23 @@ volumeBindingMode: WaitForFirstConsumer
 # TODO(x.zhou): allow volume expansion
 allowVolumeExpansion: false
 ---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageclass.hostpath.name }}-quota
+  annotations:
+    local.csi.aliyun.com/config: |
+      - name: BasePath
+        value: /var/open-local/local
+      - name: EXT4Quota
+        enabled: true
+{{ include "local.labels" . | indent 2 }}
+provisioner: {{ .Values.driver }}/hostpath
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+# TODO(x.zhou): allow volume expansion
+allowVolumeExpansion: false
+---
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:

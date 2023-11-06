@@ -20,6 +20,7 @@ package provisioner
 import (
 	"context"
 	"slices"
+	"strconv"
 	"strings"
 
 	errors "github.com/pkg/errors"
@@ -200,6 +201,40 @@ func (c *VolumeConfig) GetPath() (string, error) {
 		ValidateAndBuild()
 }
 
+func (c *VolumeConfig) IsXfsQuotaEnabled() bool {
+	xfsQuotaEnabled := c.getEnabled(KeyXFSQuota)
+	xfsQuotaEnabled = strings.TrimSpace(xfsQuotaEnabled)
+
+	enableXfsQuotaBool, err := strconv.ParseBool(xfsQuotaEnabled)
+	// Default case
+	// this means that we have hit either of the two cases below:
+	//     i. The value was something other than a straightforward
+	//        true or false
+	//    ii. The value was empty
+	if err != nil {
+		return false
+	}
+
+	return enableXfsQuotaBool
+}
+
+func (c *VolumeConfig) IsExt4QuotaEnabled() bool {
+	ext4QuotaEnabled := c.getEnabled(KeyEXT4Quota)
+	ext4QuotaEnabled = strings.TrimSpace(ext4QuotaEnabled)
+
+	enableExt4QuotaBool, err := strconv.ParseBool(ext4QuotaEnabled)
+	// Default case
+	// this means that we have hit either of the two cases below:
+	//     i. The value was something other than a straightforward
+	//        true or false
+	//    ii. The value was empty
+	if err != nil {
+		return false
+	}
+
+	return enableExt4QuotaBool
+}
+
 // getValue is a utility function to extract the value
 // of the `key` from the ConfigMap object - which is
 // map[string]interface{map[string][string]}
@@ -221,6 +256,30 @@ func (c *VolumeConfig) getValue(key string) string {
 			return val
 		}
 	}
+	return ""
+}
+
+// Similar to getValue() above. Returns value of the
+// 'Enabled' parameter.
+func (c *VolumeConfig) getEnabled(key string) string {
+	if configObj, ok := GetNestedField(c.options, key).(map[string]string); ok {
+		if val, p := configObj["enabled"]; p {
+			return val
+		}
+	}
+	return ""
+}
+
+// This is similar to getValue() and getEnabled().
+// This gets the value for a specific
+// 'Data' parameter key-value pair.
+func (c *VolumeConfig) getDataField(key string, dataKey string) string {
+	if configData, ok := GetNestedField(c.configData, key).(map[string]string); ok {
+		if val, p := configData[dataKey]; p {
+			return val
+		}
+	}
+	//Default case
 	return ""
 }
 
@@ -325,8 +384,8 @@ func ConfigToMap(all []Config) (m map[string]interface{}, err error) {
 		}
 		confHierarchy := map[string]interface{}{
 			configName: map[string]string{
-				"enable": config.Enabled,
-				"value":  config.Value,
+				"enabled": config.Enabled,
+				"value":   config.Value,
 			},
 		}
 		isMerged := MergeMapOfObjects(m, confHierarchy)
