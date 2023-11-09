@@ -28,8 +28,7 @@ spec:
        while true; do
           date_str=`date '+%F %H:%M:%S'`
           greet_str="[${date_str} @ ${host_str}] hello"
-          echo ${greet_str}
-          echo ${greet_str} >> /data/hello.txt
+          echo ${greet_str} | tee -a /data/hello.txt
           sleep 60
        done
      volumeMounts:
