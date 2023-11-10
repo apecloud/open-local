@@ -14,7 +14,7 @@ on:
 env:
   RELEASE_VERSION: ${{ github.ref_name }}
 
-run-name: release image ${{ inputs.image_tag }} ${{ github.ref_name }}
+run-name: release image ${{ inputs.release_version }} ${{ github.ref_name }}
 
 jobs:
   release-version:
