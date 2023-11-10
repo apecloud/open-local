@@ -15,7 +15,7 @@ GOPROXY?=https://proxy.golang.org,direct
 MAIN_FILE=./cmd/main.go
 LD_FLAGS=-ldflags "-X '${GO_PACKAGE}/pkg/version.GitCommit=$(GIT_COMMIT)' -X '${GO_PACKAGE}/pkg/version.Version=$(VERSION)' -X 'main.VERSION=$(VERSION)' -X 'main.COMMITID=$(GIT_COMMIT)'"
 GIT_COMMIT=$(shell git rev-parse HEAD)
-VERSION=v0.7.3
+VERSION ?= v0.7.3
 
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 CRD_VERSION=v1alpha1
@@ -87,3 +87,28 @@ CONTROLLER_GEN=$(shell go env GOPATH)/bin/controller-gen
 else
 CONTROLLER_GEN=$(shell which controller-gen)
 endif
+
+##@ Helm Chart Tasks
+
+GOOS ?= $(shell $(GO_CMD) env GOOS)
+
+bump-single-chart-appver.%: chart=$*
+bump-single-chart-appver.%:
+ifeq ($(GOOS), darwin)
+	sed -i '' "s/^appVersion:.*/appVersion: $(VERSION)/" deploy/$(chart)/Chart.yaml
+else
+	sed -i "s/^appVersion:.*/appVersion: $(VERSION)/" deploy/$(chart)/Chart.yaml
+endif
+
+bump-single-chart-ver.%: chart=$*
+bump-single-chart-ver.%:
+ifeq ($(GOOS), darwin)
+	sed -i '' "s/^version:.*/version: $(VERSION)/" deploy/$(chart)/Chart.yaml
+else
+	sed -i "s/^version:.*/version: $(VERSION)/" deploy/$(chart)/Chart.yaml
+endif
+
+.PHONY: bump-chart-ver
+bump-chart-ver: \
+	bump-single-chart-ver.helm \
+	bump-single-chart-appver.helm
