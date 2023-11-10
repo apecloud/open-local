@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: one-hostpath-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: open-local-hostpath
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: simple-hello
+spec:
+  restartPolicy: Never
+  containers:
+   - name: test
+     image: bash:latest
+     command:
+     - bash
+     - -c
+     - |
+       touch /data/hello.txt
+       host_str=`hostname`
+       while true; do
+          date_str=`date '+%F %H:%M:%S'`
+          greet_str="[${date_str} @ ${host_str}] hello"
+          echo ${greet_str} | tee -a /data/hello.txt
+          sleep 60
+       done
+     volumeMounts:
+       - mountPath: /data
+         name: dir
+  volumes:
+   - name: dir
+     persistentVolumeClaim:
+       claimName: one-hostpath-pvc
