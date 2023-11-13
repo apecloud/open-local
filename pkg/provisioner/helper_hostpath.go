@@ -131,12 +131,6 @@ func convertToK(limit string, pvcStorage int64) (string, error) {
 	return valueString, nil
 }
 
-func removeBreaklineInString(str string) string {
-	str = strings.ReplaceAll(str, "\r\n", "")
-	str = strings.ReplaceAll(str, "\n", "")
-	return str
-}
-
 func notReservedVolumeDir() hostpath.Predicate {
 	return func(hp hostpath.HostPath) bool {
 		// @lockfileNameforProjectID is preserved.
@@ -297,23 +291,22 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	// PID is the last project Id in the directory
 	// xfs_quota project(xfs) or chattr +P (ext4) initializes project with new project id
 	// xfs_quota limit(xfs) or repquota (ext4) sets the quota according to limits defined
-	// Note: 1. comment is not allowed. 2. make sure each line of command ends with ';'.
 	cmd := `
-        FS=$(stat -f -c %T /data);
-        set -x;
+        FS=$(stat -f -c %T /data)
+        set -x
         if [[ "$FS" == "xfs" ]]; then
-	        PID=$(xfs_quota -x -c 'report -h' /data | tail -2 | awk 'NR==1{print substr ($1,2)}+0');
-		    PID=$(expr $PID + 1);
-            xfs_quota -x -c 'project -s -p  {{ .ProjectPath }}' $PID /data;
-            xfs_quota -x -c 'limit -p bsoft={{ .SoftLimitGrace }} bhard={{ .HardLimitGrace }}' $PID /data;
+	        PID=$(xfs_quota -x -c 'report -h' /data | tail -2 | awk 'NR==1{print substr ($1,2)}+0')
+		    PID=$(expr $PID + 1)
+            xfs_quota -x -c 'project -s -p  {{ .ProjectPath }}' $PID /data
+            xfs_quota -x -c 'limit -p bsoft={{ .SoftLimitGrace }} bhard={{ .HardLimitGrace }}' $PID /data
         elif [[ "$FS" == "ext2/ext3" ]]; then
-		    PID=$(repquota -P /data | tail -3 | awk 'NR==1{print substr ($1,2)}+0');
-            PID=$(expr $PID + 1);
-            chattr +P -p $PID {{ .ProjectPath }};
-            setquota -P $PID {{ .UpperSoftLimitGrace }} {{ .UpperHardLimitGrace }} 0 0 /data;
+		    PID=$(repquota -P /data | tail -3 | awk 'NR==1{print substr ($1,2)}+0')
+            PID=$(expr $PID + 1)
+            chattr +P -p $PID {{ .ProjectPath }}
+            setquota -P $PID {{ .UpperSoftLimitGrace }} {{ .UpperHardLimitGrace }} 0 0 /data
         else
-            rm -rf {{ .ProjectPath }};
-            exit 1;
+            rm -rf {{ .ProjectPath }}
+            exit 1
         fi
     `
 	tmpl, err := template.New("").Parse(cmd)
@@ -335,7 +328,7 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 		return err
 	}
 	lockfile := filepath.Join("/data/", lockfileNameForProjectID)
-	config.pOpts.cmdsForPath = []string{"flock", lockfile, "-c", removeBreaklineInString(strBuilder.String())}
+	config.pOpts.cmdsForPath = []string{"flock", lockfile, "-c", strBuilder.String()}
 
 	qPod, err := p.launchPod(ctx, config)
 	if err != nil {
