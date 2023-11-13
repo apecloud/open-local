@@ -84,6 +84,12 @@ const (
 	k8sNodeLabelKeyHostname = "kubernetes.io/hostname"
 )
 
+const (
+	// reservered lockfile name for incrementing project id serially
+	// volumeDir should never same with this.
+	lockfileNameForProjectID = "__xxx_lock_file.lock"
+)
+
 // GetVolumeConfig creates a new VolumeConfig struct by
 // parsing and merging the configuration provided in the PVC
 // annotation - local.csi.aliyun.com/config with the

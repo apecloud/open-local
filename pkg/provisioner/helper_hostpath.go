@@ -20,6 +20,7 @@ package provisioner
 import (
 	"context"
 	"math"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -136,6 +137,13 @@ func removeBreaklineInString(str string) string {
 	return str
 }
 
+func notReservedVolumeDir() hostpath.Predicate {
+	return func(hp hostpath.HostPath) bool {
+		// @lockfileNameforProjectID is preserved.
+		return path.Base(string(hp)) != lockfileNameForProjectID
+	}
+}
+
 // createInitPod launches a helper(busybox) pod, to create the host path.
 //
 //	The local pv expect the hostpath to be already present before mounting
@@ -154,6 +162,7 @@ func (p *Provisioner) createInitPod(ctx context.Context, pOpts *HelperPodOptions
 	var vErr error
 	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
 	if vErr != nil {
 		return vErr
@@ -196,6 +205,7 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 	var vErr error
 	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
 	if vErr != nil {
 		return vErr
@@ -260,6 +270,7 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	// Extract the base path and the volume unique path.
 	config.parentDir, config.volumeDir, err = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
 	if err != nil {
 		return err
@@ -323,7 +334,8 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	}); err != nil {
 		return err
 	}
-	config.pOpts.cmdsForPath = []string{"sh", "-c", removeBreaklineInString(strBuilder.String())}
+	lockfile := filepath.Join("/data/", lockfileNameForProjectID)
+	config.pOpts.cmdsForPath = []string{"flock", lockfile, "-c", removeBreaklineInString(strBuilder.String())}
 
 	qPod, err := p.launchPod(ctx, config)
 	if err != nil {
