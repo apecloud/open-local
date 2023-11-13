@@ -86,7 +86,7 @@ const (
 
 const (
 	// reservered lockfile name for incrementing project id serially
-	// volumeDir should never same with this.
+	// volumeDir should never be same with this.
 	lockfileNameForProjectID = "__xxx_lock_file.lock"
 )
 
