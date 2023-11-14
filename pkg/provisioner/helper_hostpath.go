@@ -133,7 +133,7 @@ func convertToK(limit string, pvcStorage int64) (string, error) {
 
 func notReservedVolumeDir() hostpath.Predicate {
 	return func(hp hostpath.HostPath) bool {
-		// @lockfileNameforProjectID is preserved.
+		// @lockfileNameforProjectID is reserved name.
 		return path.Base(string(hp)) != lockfileNameForProjectID
 	}
 }
