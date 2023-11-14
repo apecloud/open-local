@@ -67,9 +67,7 @@ func (p *Provisioner) ProvisionHostPath(ctx context.Context, opts pvController.P
 	klog.Infof("Creating volume %v at node with labels {%v}, path:%v,ImagePullSecrets:%v", name, nodeAffinityLabels, path, imagePullSecrets)
 
 	//Before using the path for local PV, make sure it is created.
-	initCmdsForPath := []string{"mkdir", "-m", "0777", "-p"}
 	podOpts := &HelperPodOptions{
-		cmdsForPath:        initCmdsForPath,
 		name:               name,
 		path:               path,
 		nodeAffinityLabels: nodeAffinityLabels,
@@ -232,9 +230,7 @@ func (p *Provisioner) DeleteHostPath(ctx context.Context, pv *corev1.PersistentV
 
 	//Initiate clean up only when reclaim policy is not retain.
 	klog.Infof("Deleting volume %v at %v:%v", pv.Name, GetNodeHostname(nodeObject), path)
-	cleanupCmdsForPath := []string{"rm", "-rf"}
 	podOpts := &HelperPodOptions{
-		cmdsForPath:        cleanupCmdsForPath,
 		name:               pv.Name,
 		path:               path,
 		nodeAffinityLabels: nodeAffinityLabels,
