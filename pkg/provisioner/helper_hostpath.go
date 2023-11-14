@@ -134,7 +134,7 @@ func convertToK(limit string, pvcStorage int64) (string, error) {
 func notReservedVolumeDir() hostpath.Predicate {
 	return func(hp hostpath.HostPath) bool {
 		// @lockfileNameforProjectID is reserved name.
-		return path.Base(string(hp)) != lockfileNameForProjectID
+		return path.Base(string(hp)) != lockfileForProjectID
 	}
 }
 
@@ -287,6 +287,15 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	}
 
 	cmd := `
+        LOCK_ACQUIRED=false
+        # release lock
+        trap "if [ $LOCK_ACQUIRED -eq 1 ]; then flock -u {{ .Lockfile }}; fi" EXIT
+        # acquire lock
+        flock -w {{ .LockTimeout }} -x {{ .Lockfile }}
+        RETVAL=$?
+        if [ $RETVAL -ne 0 ]; then echo "failed to acquire lock"; exit $RETVAL; fi
+        $LOCK_ACUIRED=true
+
         # fs stores the file system of mount
         FS=$(stat -f -c %T /data)
         set -x
@@ -315,10 +324,13 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	}
 	var strBuilder strings.Builder
 	if err = tmpl.Execute(&strBuilder, struct {
-		ProjectPath                         string
+		LockTimeout                         int
+		Lockfile, ProjectPath               string
 		SoftLimitGrace, UpperSoftLimitGrace string
 		HardLimitGrace, UpperHardLimitGrace string
 	}{
+		LockTimeout:         30, // 30 seconds
+		Lockfile:            filepath.Join("/data/", lockfileForProjectID),
 		ProjectPath:         filepath.Join("/data/", config.volumeDir),
 		SoftLimitGrace:      config.pOpts.softLimitGrace,
 		UpperSoftLimitGrace: strings.ToUpper(config.pOpts.softLimitGrace),
@@ -327,8 +339,7 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 	}); err != nil {
 		return err
 	}
-	lockfile := filepath.Join("/data/", lockfileNameForProjectID)
-	config.pOpts.cmdsForPath = []string{"flock", lockfile, "-c", strBuilder.String()}
+	config.pOpts.cmdsForPath = []string{"sh", "-c", strBuilder.String()}
 
 	qPod, err := p.launchPod(ctx, config)
 	if err != nil {
