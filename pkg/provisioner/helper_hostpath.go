@@ -252,37 +252,38 @@ func (pOpts *HelperPodOptions) validateLimits() error {
 //	into pod. Validate that the local pv host path is not created under root.
 func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOptions) error {
 	var config podConfig
-	var err error
 	config.pOpts, config.podName = pOpts, "quota"
 	// err := pOpts.validate()
-	if err = pOpts.validate(); err != nil {
+	if err := pOpts.validate(); err != nil {
 		return err
 	}
 
 	// Initialize HostPath builder and validate that
 	// volume directory is not directly under root.
 	// Extract the base path and the volume unique path.
-	config.parentDir, config.volumeDir, err = hostpath.NewBuilder().WithPath(pOpts.path).
+	var vErr error
+	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
 		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
-	if err != nil {
-		return err
+	if vErr != nil {
+		return vErr
 	}
 
 	// Pass on the taints, to create tolerations.
 	config.taints = pOpts.selectedNodeTaints
 
-	config.pOpts.softLimitGrace, err = convertToK(config.pOpts.softLimitGrace, config.pOpts.pvcStorage)
-	if err != nil {
-		return err
+	var lErr error
+	config.pOpts.softLimitGrace, lErr = convertToK(config.pOpts.softLimitGrace, config.pOpts.pvcStorage)
+	if lErr != nil {
+		return lErr
 	}
-	config.pOpts.hardLimitGrace, err = convertToK(config.pOpts.hardLimitGrace, config.pOpts.pvcStorage)
-	if err != nil {
-		return err
+	config.pOpts.hardLimitGrace, lErr = convertToK(config.pOpts.hardLimitGrace, config.pOpts.pvcStorage)
+	if lErr != nil {
+		return lErr
 	}
 
-	if err = pOpts.validateLimits(); err != nil {
+	if err := pOpts.validateLimits(); err != nil {
 		return err
 	}
 
