@@ -85,9 +85,9 @@ const (
 )
 
 const (
-	// reservered lockfile name for incrementing project id serially
+	// reserved lockfile name for incrementing project id serially
 	// volumeDir should never be same with this.
-	lockfileNameForProjectID = "__xxx_lock_file.lock"
+	lockfileNameForProjectID = "openlocal_set_quota.lock"
 )
 
 // GetVolumeConfig creates a new VolumeConfig struct by
