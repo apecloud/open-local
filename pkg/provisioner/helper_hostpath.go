@@ -155,7 +155,7 @@ func (p *Provisioner) createInitPod(ctx context.Context, pOpts *HelperPodOptions
 	//Pass on the taints, to create tolerations.
 	config.taints = pOpts.selectedNodeTaints
 
-	config.pOpts.cmdsForPath = append(config.pOpts.cmdsForPath, filepath.Join("/data/", config.volumeDir))
+	config.pOpts.cmdsForPath = []string{"mkdir", "-m", "0777", "-p", filepath.Join("/data/", config.volumeDir)}
 
 	iPod, err := p.launchPod(ctx, config)
 	if err != nil {
@@ -196,7 +196,7 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 
 	config.taints = pOpts.selectedNodeTaints
 
-	config.pOpts.cmdsForPath = append(config.pOpts.cmdsForPath, filepath.Join("/data/", config.volumeDir))
+	config.pOpts.cmdsForPath = []string{"rm", "-rf", filepath.Join("/data/", config.volumeDir)}
 
 	cPod, err := p.launchPod(ctx, config)
 	if err != nil {
