@@ -19,9 +19,7 @@ package provisioner
 
 import (
 	"context"
-	"io"
 	"math"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -414,14 +412,6 @@ func (p *Provisioner) launchPod(ctx context.Context, config podConfig) (*corev1.
 
 func (p *Provisioner) exitPod(ctx context.Context, hPod *corev1.Pod) error {
 	defer func() {
-		// TODO(gufeijun) test only
-		podLogs, err := p.kubeClient.CoreV1().Pods(p.namespace).GetLogs(hPod.Name, &corev1.PodLogOptions{}).Stream(context.Background())
-		if err != nil {
-			klog.Errorf("failed to get log from pod: %s", hPod.Name)
-		} else {
-			io.Copy(os.Stdout, podLogs)
-			podLogs.Close()
-		}
 		e := p.kubeClient.CoreV1().Pods(p.namespace).Delete(ctx, hPod.Name, metav1.DeleteOptions{})
 		if e != nil {
 			klog.Errorf("unable to delete the helper pod: %v", e)
