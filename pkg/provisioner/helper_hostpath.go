@@ -19,7 +19,9 @@ package provisioner
 
 import (
 	"context"
+	"io"
 	"math"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -329,7 +331,9 @@ func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOption
 		return err
 	}
 	lockfile := filepath.Join("/data/", lockfileForProjectID)
-	config.pOpts.cmdsForPath = []string{"flock", "-w", "30", "-x", lockfile, "-c", strBuilder.String()}
+	cmd = strBuilder.String()
+	klog.Infof("Quota commands: %s", cmd)
+	config.pOpts.cmdsForPath = []string{"flock", "-w", "30", "-x", lockfile, "-c", cmd}
 
 	qPod, err := p.launchPod(ctx, config)
 	if err != nil {
@@ -410,6 +414,14 @@ func (p *Provisioner) launchPod(ctx context.Context, config podConfig) (*corev1.
 
 func (p *Provisioner) exitPod(ctx context.Context, hPod *corev1.Pod) error {
 	defer func() {
+		// TODO(gufeijun) test only
+		podLogs, err := p.kubeClient.CoreV1().Pods(p.namespace).GetLogs(hPod.Name, &corev1.PodLogOptions{}).Stream(context.Background())
+		if err != nil {
+			klog.Errorf("failed to get log from pod: %s", hPod.Name)
+		} else {
+			io.Copy(os.Stdout, podLogs)
+			podLogs.Close()
+		}
 		e := p.kubeClient.CoreV1().Pods(p.namespace).Delete(ctx, hPod.Name, metav1.DeleteOptions{})
 		if e != nil {
 			klog.Errorf("unable to delete the helper pod: %v", e)
