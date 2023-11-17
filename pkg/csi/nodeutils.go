@@ -24,7 +24,7 @@ import (
 	"k8s.io/mount-utils"
 )
 
-func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRequest) (string, string, error) {
+func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRequest) (string, error) {
 	vgName := ""
 	ephemeralVolume := req.VolumeContext[pkg.Ephemeral] == "true"
 	if ephemeralVolume {
@@ -34,11 +34,11 @@ func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRe
 		pvName := req.VolumeContext[pkg.PVName]
 		pv, err := ns.options.kubeclient.CoreV1().PersistentVolumes().Get(context.Background(), pvName, metav1.GetOptions{})
 		if err != nil {
-			return "", "", fmt.Errorf("createLV: fail to get pv: %s", err.Error())
+			return "", fmt.Errorf("createLV: fail to get pv: %s", err.Error())
 		}
 		vgName = utils.GetVGNameFromCsiPV(pv)
 		if vgName == "" {
-			return "", "", status.Errorf(codes.Internal, "error with input vgName is empty, pv is %s", pvName)
+			return "", status.Errorf(codes.Internal, "error with input vgName is empty, pv is %s", pvName)
 		}
 	}
 
@@ -60,16 +60,14 @@ func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRe
 	}
 	devicePath := filepath.Join("/dev/", vgName, volumeID)
 	if _, err := ns.osTool.Stat(devicePath); os.IsNotExist(err) {
-		_, _, err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
+		err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
 		if err != nil {
 			log.Errorf("createLV: create volume %s with error: %s", volumeID, err.Error())
-			return "", "", status.Error(codes.Internal, err.Error())
+			return "", status.Error(codes.Internal, err.Error())
 		}
-
-		return devicePath, "", nil
 	}
 
-	return devicePath, "", nil
+	return devicePath, nil
 }
 
 func collectMountOptions(fsType string, mntFlags []string) []string {
@@ -89,7 +87,7 @@ func (ns *nodeServer) mountLvmFS(ctx context.Context, req *csi.NodePublishVolume
 	// target path
 	targetPath := req.TargetPath
 	// device path
-	devicePath, _, err := ns.createLV(ctx, req)
+	devicePath, err := ns.createLV(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -204,7 +202,7 @@ func (ns *nodeServer) mountLvmBlock(ctx context.Context, req *csi.NodePublishVol
 	// target path
 	targetPath := req.TargetPath
 	// device path
-	devicePath, _, err := ns.createLV(ctx, req)
+	devicePath, err := ns.createLV(ctx, req)
 	if err != nil {
 		return fmt.Errorf("mountLvmBlock: fail to create lv: %s", err.Error())
 	}
@@ -385,7 +383,7 @@ func (ns *nodeServer) mountDeviceVolumeBlock(ctx context.Context, req *csi.NodeP
 }
 
 // create lvm volume
-func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vgName, lvmType string) (string, string, error) {
+func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vgName, lvmType string) error {
 	var err error
 	var pvSize int64
 	var unit string
@@ -397,14 +395,14 @@ func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vg
 		}
 		quan, err := resource.ParseQuantity(sizeStr)
 		if err != nil {
-			return "", "", err
+			return err
 		}
 		pvSize = quan.Value() / 1024 / 1024
 		unit = "m"
 	} else {
 		pvSize, unit, _, err = getPvInfo(ns.options.kubeclient, volumeID)
 		if err != nil {
-			return "", "", err
+			return err
 		}
 	}
 
@@ -413,14 +411,11 @@ func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vg
 	_, err = ns.osTool.RunCommand(ckCmd)
 	if err != nil {
 		log.Errorf("createVolume:: VG is not exist: %s", vgName)
-		return "", "", err
+		return err
 	}
 
 	// Create lvm volume
-	if err := ns.createLvm(vgName, volumeID, lvmType, unit, pvSize); err != nil {
-		return "", "", err
-	}
-	return "", "", nil
+	return ns.createLvm(vgName, volumeID, lvmType, unit, pvSize)
 }
 
 func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize int64) error {
