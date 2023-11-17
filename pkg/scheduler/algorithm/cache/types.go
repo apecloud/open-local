@@ -36,8 +36,6 @@ type InlineVolumeInfo struct {
 
 type NodeInfo struct {
 	NodeName string
-	// SupportSPDK indicate if SPDK is supported
-	SupportSPDK bool
 	// VGs is the volume group
 	VGs         map[ResourceName]SharedResource
 	MountPoints map[ResourceName]ExclusiveResource
@@ -46,7 +44,7 @@ type NodeInfo struct {
 	AllocatedNum        int64
 	LocalPVs            map[string]corev1.PersistentVolume
 	PodInlineVolumeInfo map[string][]InlineVolumeInfo
-	PVCRecordsByExtend  map[string] /*PVCNameSpace/PVCName*/ AllocatedUnit //add by extend schedule
+	PVCRecordsByExtend  map[string] /*PVCNameSpace/PVCName*/ AllocatedUnit // add by extend schedule
 }
 
 func (nodeInfo *NodeInfo) IsPVAllocated(pv *corev1.PersistentVolume) bool {

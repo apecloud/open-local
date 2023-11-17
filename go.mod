@@ -8,7 +8,6 @@ require (
 	github.com/docker/go-units v0.4.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/credstore v0.0.0-20181218150457-e184c60ef875
-	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
 	github.com/json-iterator/go v1.1.12
@@ -42,6 +41,7 @@ require (
 
 require (
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
+	github.com/google/uuid v1.3.0 // indirect
 	github.com/miekg/dns v1.1.45 // indirect
 )
 

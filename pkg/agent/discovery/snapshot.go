@@ -30,12 +30,7 @@ import (
 )
 
 func (d *Discoverer) ExpandSnapshotLVIfNeeded() {
-	// It's unnecessary for SPDK snapshot. SPDK snapshot size is fixed.
-	// In SPDK, when creating snapshot original volume becomes thin provisioned
-	// and saves only incremental differences from its underlying snapshot.
-	if !d.spdk {
-		d.expandSnapshotLvmLVIfNeeded()
-	}
+	d.expandSnapshotLvmLVIfNeeded()
 }
 
 func (d *Discoverer) expandSnapshotLvmLVIfNeeded() {

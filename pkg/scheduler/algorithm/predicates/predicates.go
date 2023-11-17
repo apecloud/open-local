@@ -44,8 +44,7 @@ type PredicateFunc func(ctx *algorithm.SchedulingContext, pod *corev1.Pod, node 
 var (
 	// Newly added predicates should be placed here
 	DefaultPredicateFuncs = []PredicateFunc{
-		//LuckyPredicate,
-		StorageTypePredicate,
+		// LuckyPredicate,
 		CapacityPredicate,
 	}
 )
@@ -113,9 +112,9 @@ func (p Predicate) Handler(args schedulerapi.ExtenderArgs) (*schedulerapi.Extend
 		canSchedule = make([]string, 0)
 	}
 	result := schedulerapi.ExtenderFilterResult{
-		//Nodes: &corev1.NodeList{
+		// Nodes: &corev1.NodeList{
 		//	Items: canSchedule,
-		//},
+		// },
 		NodeNames:   &canSchedule,
 		FailedNodes: canNotSchedule,
 		Error:       "", // This is to signal scheduler not to treat it as a failure

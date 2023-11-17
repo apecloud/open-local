@@ -12,9 +12,7 @@ import (
 	"github.com/alibaba/open-local/pkg/csi/server"
 	"github.com/alibaba/open-local/pkg/restic"
 	"github.com/alibaba/open-local/pkg/utils"
-	spdk "github.com/alibaba/open-local/pkg/utils/spdk"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -62,17 +60,13 @@ func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRe
 	}
 	devicePath := filepath.Join("/dev/", vgName, volumeID)
 	if _, err := ns.osTool.Stat(devicePath); os.IsNotExist(err) {
-		newDev, bdevName, err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
+		_, _, err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
 		if err != nil {
 			log.Errorf("createLV: create volume %s with error: %s", volumeID, err.Error())
 			return "", "", status.Error(codes.Internal, err.Error())
 		}
 
-		if ns.spdkSupported {
-			return newDev, bdevName, nil
-		} else {
-			return devicePath, "", nil
-		}
+		return devicePath, "", nil
 	}
 
 	return devicePath, "", nil
@@ -415,49 +409,16 @@ func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vg
 	}
 
 	// check vg exist
-	if !ns.spdkSupported {
-		ckCmd := fmt.Sprintf("%s vgck %s", localtype.NsenterCmd, vgName)
-		_, err = ns.osTool.RunCommand(ckCmd)
-		if err != nil {
-			log.Errorf("createVolume:: VG is not exist: %s", vgName)
-			return "", "", err
-		}
+	ckCmd := fmt.Sprintf("%s vgck %s", localtype.NsenterCmd, vgName)
+	_, err = ns.osTool.RunCommand(ckCmd)
+	if err != nil {
+		log.Errorf("createVolume:: VG is not exist: %s", vgName)
+		return "", "", err
 	}
 
 	// Create lvm volume
-	if ns.spdkSupported {
-		lvName := spdk.EnsureLVNameValid(volumeID)
-
-		bdevName, err := ns.spdkclient.CreateLV(vgName, lvName, uint64(pvSize*1024*1024))
-		if err != nil {
-			return "", "", err
-		}
-
-		newDev, _ := ns.spdkclient.FindVhostDevice(bdevName)
-		if newDev == "" {
-			newDev, err = ns.spdkclient.CreateVhostDevice("ctrlr-"+uuid.New().String(), bdevName)
-			if err != nil {
-				return "", "", err
-			}
-		}
-
-		ephemeralVolume := volumeContext[pkg.Ephemeral] == "true"
-		if ephemeralVolume {
-			if err := ns.ephemeralVolumeStore.AddVolume(volumeID, bdevName); err != nil {
-				log.Error("fail to add volume: ", err.Error())
-				if err := ns.spdkclient.CleanBdev(bdevName); err != nil {
-					log.Error("createVolume - CleanBdev failed")
-				}
-				return "", "", err
-			}
-		}
-
-		log.Infof("createVolume: Volume: %s, VG: %s, Size: %d, lvName: %s, dev: %s", volumeID, vgName, pvSize, lvName, newDev)
-		return newDev, bdevName, nil
-	} else {
-		if err := ns.createLvm(vgName, volumeID, lvmType, unit, pvSize); err != nil {
-			return "", "", err
-		}
+	if err := ns.createLvm(vgName, volumeID, lvmType, unit, pvSize); err != nil {
+		return "", "", err
 	}
 	return "", "", nil
 }
