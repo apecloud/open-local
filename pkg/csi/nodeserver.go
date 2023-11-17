@@ -371,7 +371,7 @@ func (ns *nodeServer) publishDirectVolume(ctx context.Context, req *csi.NodePubl
 		}
 	} else {
 		var err error
-		device, _, err = ns.createLV(ctx, req)
+		device, err = ns.createLV(ctx, req)
 		if err != nil {
 			log.Error("publishDirectVolume - create logical volume failed: ", err.Error())
 			return status.Errorf(codes.Internal, "publishDirectVolume - create logical volume failed: %s", err.Error())
@@ -593,7 +593,7 @@ func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishV
 	log.Infof("pod(volume id %s) blkio path: %s", volumeID, blkioPath)
 	// get lv lvpath
 	// todo: not support device kind
-	lvpath, _, err := ns.createLV(ctx, req)
+	lvpath, err := ns.createLV(ctx, req)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to get lv path %s: %s", volumeID, err.Error())
 	}
