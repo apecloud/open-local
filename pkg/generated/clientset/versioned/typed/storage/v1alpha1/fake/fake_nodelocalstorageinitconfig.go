@@ -99,7 +99,7 @@ func (c *FakeNodeLocalStorageInitConfigs) Update(ctx context.Context, nodeLocalS
 // Delete takes name of the nodeLocalStorageInitConfig and deletes it. Returns an error if one occurs.
 func (c *FakeNodeLocalStorageInitConfigs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(nodelocalstorageinitconfigsResource, name), &v1alpha1.NodeLocalStorageInitConfig{})
+		Invokes(testing.NewRootDeleteActionWithOptions(nodelocalstorageinitconfigsResource, name, opts), &v1alpha1.NodeLocalStorageInitConfig{})
 	return err
 }
 

@@ -20,20 +20,27 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_ROOT=$(dirname ${BASH_SOURCE})/..
-CODEGEN_PKG=${CODEGEN_PKG:-$(cd ${SCRIPT_ROOT}; ls -d -1 ./vendor/k8s.io/code-generator 2>/dev/null || echo ../code-generator)}
+SCRIPT_ROOT="$(cd "$(dirname $0)/../" && pwd -P)"
+if [ -d "${SCRIPT_ROOT}/vendor" ]; then
+  export GOFLAGS="-mod=readonly"
+fi
+CODEGEN_PKG=${CODEGEN_PKG:-$(go list -f '{{.Dir}}' -m k8s.io/code-generator)}
 CODE_REPO=github.com/alibaba/open-local
 GROUP=storage
 VERSION=v1alpha1
-# generate the code with:
-# --output-base    because this script should also be able to run inside the vendor dir of
-#                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
-#                  instead of the $GOPATH directly. For normal projects this can be dropped.
-${CODEGEN_PKG}/generate-groups.sh "deepcopy,client,informer,lister" \
-  ${CODE_REPO}/pkg/generated ${CODE_REPO}/pkg/apis \
+OUTPUT_PACKAGE="${CODE_REPO}/pkg/generated"
+OUTPUT_BASE="${SCRIPT_ROOT}/hack"
+export GOBIN=${SCRIPT_ROOT}/bin
+
+# generate the code to hack/github.com/alibaba/open-local/...
+bash ${CODEGEN_PKG}/generate-groups.sh "deepcopy,client,informer,lister" \
+  ${OUTPUT_PACKAGE} ${CODE_REPO}/pkg/apis \
   ${GROUP}:${VERSION} \
-  --output-base "$(dirname ${BASH_SOURCE})/../../../.." \
+  --output-base "${OUTPUT_BASE}" \
   --go-header-file ${SCRIPT_ROOT}/hack/boilerplate.go.txt
 
-# To use your own boilerplate text use:
-#   --go-header-file ${SCRIPT_ROOT}/hack/custom-boilerplate.go.txt
+# move the code to the right place
+rm -rf "${SCRIPT_ROOT}/pkg/generated"
+mv "${OUTPUT_BASE}/${OUTPUT_PACKAGE}" "${SCRIPT_ROOT}/pkg/generated"
+cp -r "${OUTPUT_BASE}/${CODE_REPO}/pkg/apis/" "${SCRIPT_ROOT}/pkg/apis/"
+rm -rf "${OUTPUT_BASE}/github.com"

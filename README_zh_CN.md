@@ -40,7 +40,6 @@
 | IO限流(IO-Throttling)            | v0.4.0+        | 1.20-1.22 |
 | 本地临时盘(CSI ephemeral volumes) | v0.5.0+        | 1.20-1.22 |
 | IPv6支持                         | v0.5.3+        | 1.20-1.22 |
-| SPDK设备支持                   | v0.6.0+        | 1.20-1.22 |
 | 读写快照（read-write snapshot) | v0.7.0+        | 1.20-1.22 |
 
 ## 架构

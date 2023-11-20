@@ -90,7 +90,6 @@ func Start(opt *csiOption) error {
 		csi.WithLocalClient(localclient),
 		csi.WithDriverMode(opt.DriverMode),
 		csi.WithUseNodeHostname(opt.UseNodeHostname),
-		csi.WithEnableSpdk(opt.EnableSpdk),
 		csi.WithKonnectivity(
 			opt.KonnectivityUDS,
 			opt.KonnectivityProxyHost,

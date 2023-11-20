@@ -69,7 +69,7 @@ image-tools:
 # generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
 	./hack/update-codegen.sh
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role crd paths="./pkg/apis/storage/$(CRD_VERSION)/..." output:crd:artifacts:config=helm/crds/
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role crd paths="./pkg/apis/storage/$(CRD_VERSION)/..." output:crd:artifacts:config=deploy/helm/crds/
 
 .PHONY: fmt
 fmt:
@@ -81,12 +81,10 @@ vet:
 # find or download controller-gen
 # download controller-gen if necessary
 controller-gen:
-ifeq (, $(shell which controller-gen))
-	go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.5.0
-CONTROLLER_GEN=$(shell go env GOPATH)/bin/controller-gen
-else
-CONTROLLER_GEN=$(shell which controller-gen)
+ifeq (, $(wildcard bin/controller-gen))
+	GOBIN=$(shell pwd)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.5.0
 endif
+CONTROLLER_GEN=$(shell pwd)/bin/controller-gen
 
 ##@ Helm Chart Tasks
 

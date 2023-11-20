@@ -110,7 +110,7 @@ func (c *FakeNodeLocalStorages) UpdateStatus(ctx context.Context, nodeLocalStora
 // Delete takes name of the nodeLocalStorage and deletes it. Returns an error if one occurs.
 func (c *FakeNodeLocalStorages) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteAction(nodelocalstoragesResource, name), &v1alpha1.NodeLocalStorage{})
+		Invokes(testing.NewRootDeleteActionWithOptions(nodelocalstoragesResource, name, opts), &v1alpha1.NodeLocalStorage{})
 	return err
 }
 

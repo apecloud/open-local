@@ -33,7 +33,6 @@ func NewNodeCache(nodeName string) *NodeCache {
 		rwLock: sync.RWMutex{},
 		NodeInfo: NodeInfo{
 			NodeName:     nodeName,
-			SupportSPDK:  false,
 			VGs:          make(map[ResourceName]SharedResource),
 			MountPoints:  make(map[ResourceName]ExclusiveResource),
 			Devices:      make(map[ResourceName]ExclusiveResource),
@@ -47,10 +46,6 @@ func NewNodeCache(nodeName string) *NodeCache {
 
 func NewNodeCacheFromStorage(nodeLocal *nodelocalstorage.NodeLocalStorage) *NodeCache {
 	newNodeCache := NewNodeCache(nodeLocal.Name) // create a new node cache
-
-	if nodeLocal.Spec.SpdkConfig.DeviceType != "" {
-		newNodeCache.SupportSPDK = true
-	}
 
 	// VGs
 	vgInfoMap := make(map[string]nodelocalstorage.VolumeGroup, len(nodeLocal.Status.FilteredStorageInfo.VolumeGroups))
@@ -121,10 +116,6 @@ func NewNodeCacheFromStorage(nodeLocal *nodelocalstorage.NodeLocalStorage) *Node
 func (nc *NodeCache) UpdateNodeInfo(nodeLocal *nodelocalstorage.NodeLocalStorage) *NodeCache {
 	nc.rwLock.Lock()
 	defer nc.rwLock.Unlock()
-
-	if nodeLocal.Spec.SpdkConfig.DeviceType != "" {
-		nc.SupportSPDK = true
-	}
 
 	// make a copy first, we may need make a deepcopy
 	cacheNode := nc
