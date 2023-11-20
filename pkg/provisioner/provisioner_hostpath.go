@@ -127,6 +127,16 @@ func (p *Provisioner) ProvisionHostPath(ctx context.Context, opts pvController.P
 		}
 	}
 
+	podOpts.wbps = volumeConfig.getDataField(KeyIOLimits, KeyWriteBPS)
+	podOpts.wiops = volumeConfig.getDataField(KeyIOLimits, KeyWriteIOPS)
+	podOpts.rbps = volumeConfig.getDataField(KeyIOLimits, KeyReadBPS)
+	podOpts.riops = volumeConfig.getDataField(KeyIOLimits, KeyReadIOPS)
+
+	if err := p.createIOLimitPod(ctx, podOpts); err != nil {
+		klog.Errorf("Applying iops and bps limit failed: %v", err)
+		return nil, pvController.ProvisioningFinished, err
+	}
+
 	// VolumeMode will always be specified as Filesystem for host path volume,
 	// and the value passed in from the PVC spec will be ignored.
 	fs := corev1.PersistentVolumeFilesystem

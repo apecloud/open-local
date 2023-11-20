@@ -74,6 +74,22 @@ const (
 	KeyQuotaSoftLimit = "softLimitGrace"
 	KeyQuotaHardLimit = "hardLimitGrace"
 
+	// KeyIOLimit enables/sets paramters for limiting iops and bps
+	// Example StorageClass snippet:
+	//    - name: IOLimits
+	//      enable: true
+	//      data:
+	//        riops: "100"
+	//        rbps:  "1048576"
+	//		  wiops: "100"
+	//        wbps:  "1048576"
+	KeyIOLimits = "IOLimits"
+
+	KeyReadIOPS  = "riops"
+	KeyReadBPS   = "rbps"
+	KeyWriteIOPS = "wiops"
+	KeyWriteBPS  = "wbps"
+
 	// TODO(x.zhou): change the domain
 	ConfigAnnoKey = "local.csi.aliyun.com/config"
 )

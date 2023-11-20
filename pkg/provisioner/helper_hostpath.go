@@ -79,6 +79,11 @@ type HelperPodOptions struct {
 	// hardLimitGrace is the hard limit of quota on the project
 	hardLimitGrace string
 
+	// write io bandwidth and iops limit
+	wbps, wiops string
+	// read io bandwidth and iops limit
+	rbps, riops string
+
 	// pvcStorage is the storage requested for pv
 	pvcStorage int64
 }
