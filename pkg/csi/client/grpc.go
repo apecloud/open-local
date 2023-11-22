@@ -42,7 +42,7 @@ type Connection interface {
 	CreateSnapshot(ctx context.Context, vgName string, snapshotName string, srcVolumeName string, readonly bool, roInitSize int64, secrets map[string]string) (int64, error)
 	DeleteSnapshot(ctx context.Context, volGroup string, snapVolumeID string, readonly bool, secrets map[string]string) error
 	ExpandVolume(ctx context.Context, volGroup string, volumeID string, size uint64) error
-	CleanPath(ctx context.Context, path string) error
+	CleanPath(ctx context.Context, path string, includeItself bool) error
 	CleanDevice(ctx context.Context, device string) error
 	Close() error
 }
@@ -239,10 +239,11 @@ func (c *workerConnection) DeleteSnapshot(ctx context.Context, volGroup string, 
 	return err
 }
 
-func (c *workerConnection) CleanPath(ctx context.Context, path string) error {
+func (c *workerConnection) CleanPath(ctx context.Context, path string, includeItself bool) error {
 	client := lib.NewLVMClient(c.conn)
 	req := lib.CleanPathRequest{
-		Path: path,
+		Path:          path,
+		IncludeItself: includeItself,
 	}
 	response, err := client.CleanPath(ctx, &req)
 	if err != nil {

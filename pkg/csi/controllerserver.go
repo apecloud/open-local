@@ -163,6 +163,16 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		cs.inFlight.Delete(volumeID)
 	}()
 
+	reqCtx := &createVolumeContext{
+		pvc:      pvc,
+		nodeName: nodeName,
+	}
+	ctx = ctxWithValue(ctx, ctxKeyCreateVolume, reqCtx)
+	if volumeType == string(pkg.VolumeTypeHostPath) {
+		impl := hostPathImpl{cs: cs}
+		return impl.CreateVolume(ctx, req)
+	}
+
 	paramMap := map[string]string{}
 	conn, err := cs.getNodeConn(nodeName)
 	if err != nil {
@@ -380,13 +390,24 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	if nodeName == "" {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: fail to get node name of pv %s", pv.Name)
 	}
+	volumeType := pv.Spec.CSI.VolumeAttributes[pkg.VolumeTypeKey]
+
+	reqCtx := &deleteVolumeContext{
+		pv:       pv,
+		nodeName: nodeName,
+	}
+	ctx = ctxWithValue(ctx, ctxKeyDeleteVolume, reqCtx)
+	if volumeType == string(pkg.VolumeTypeHostPath) {
+		impl := hostPathImpl{cs: cs}
+		return impl.DeleteVolume(ctx, req)
+	}
+
 	conn, err := cs.getNodeConn(nodeName)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: fail to connect to node %s: %s", nodeName, err.Error())
 	}
 	defer conn.Close()
 
-	volumeType := pv.Spec.CSI.VolumeAttributes[pkg.VolumeTypeKey]
 	switch volumeType {
 	case string(pkg.VolumeTypeLVM):
 		vgName := utils.GetVGNameFromCsiPV(pv)
@@ -422,7 +443,7 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 		if path == "" {
 			return nil, status.Errorf(codes.Internal, "DeleteVolume: fail to get mountpath of pv %s", pv.Name)
 		}
-		if err := conn.CleanPath(ctx, path); err != nil {
+		if err := conn.CleanPath(ctx, path, false); err != nil {
 			return nil, status.Errorf(codes.Internal, "DeleteVolume: fail to delete mountpoint %s: %s", path, err.Error())
 		}
 		log.Infof("DeleteVolume: delete MountPoint volume(%s) successfully", volumeID)

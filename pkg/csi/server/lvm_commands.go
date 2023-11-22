@@ -405,7 +405,10 @@ func (lvm *LvmCommads) RemoveVG(ctx context.Context, name string) (string, error
 }
 
 // CleanPath deletes all the contents under the given directory
-func (lvm *LvmCommads) CleanPath(ctx context.Context, path string) error {
+func (lvm *LvmCommads) CleanPath(ctx context.Context, path string, includeItself bool) error {
+	if includeItself {
+		return os.RemoveAll(path)
+	}
 	dir, err := os.Open(path)
 	if err != nil {
 		return err

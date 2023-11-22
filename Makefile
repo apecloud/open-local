@@ -86,6 +86,28 @@ ifeq (, $(wildcard bin/controller-gen))
 endif
 CONTROLLER_GEN=$(shell pwd)/bin/controller-gen
 
+.PHONY: protobuf
+protobuf: protoc protoc-gen-go
+	cd pkg/csi/lib && PATH="$(shell pwd)/bin:$$PATH" $(PROTOC) \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		lvm.proto
+
+protoc:
+ifeq (, $(shell which protoc))
+	$(error "$@ is not found, please install it first.")
+else
+PROTOC=$(shell which protoc)
+endif
+
+protoc-gen-go:
+ifeq (, $(wildcard bin/protoc-gen-go))
+	GOBIN=$(shell pwd)/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.31.0
+endif
+ifeq (, $(wildcard bin/protoc-gen-go-grpc))
+	GOBIN=$(shell pwd)/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
+endif
+
 ##@ Helm Chart Tasks
 
 GOOS ?= $(shell $(GO_CMD) env GOOS)

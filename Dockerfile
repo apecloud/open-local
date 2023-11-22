@@ -32,6 +32,6 @@ RUN --mount=type=bind,target=. \
 FROM alpine:3.18
 LABEL maintainers="Alibaba Cloud Authors"
 LABEL description="open-local is a local disk management system"
-RUN apk add --no-cache util-linux coreutils e2fsprogs e2fsprogs-extra xfsprogs xfsprogs-extra blkid file open-iscsi jq
+RUN apk add --no-cache util-linux coreutils e2fsprogs e2fsprogs-extra xfsprogs xfsprogs-extra blkid file open-iscsi jq quota-tools
 COPY --from=builder /out/open-local /bin/open-local
 ENTRYPOINT ["open-local"]

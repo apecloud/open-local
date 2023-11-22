@@ -408,7 +408,7 @@ func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vg
 
 	// check vg exist
 	ckCmd := fmt.Sprintf("%s vgck %s", localtype.NsenterCmd, vgName)
-	_, err = ns.osTool.RunCommand(ckCmd)
+	_, err = ns.osTool.RunShellCommand(ckCmd)
 	if err != nil {
 		log.Errorf("createVolume:: VG is not exist: %s", vgName)
 		return err
@@ -426,7 +426,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 			return fmt.Errorf("createVolume:: VG is exist: %s, bug get pv number as 0", vgName)
 		}
 		cmd := fmt.Sprintf("%s lvcreate -i %d -n %s -L %d%s %s", localtype.NsenterCmd, pvNumber, volumeID, pvSize, unit, vgName)
-		_, err := ns.osTool.RunCommand(cmd)
+		_, err := ns.osTool.RunShellCommand(cmd)
 		if err != nil {
 			log.Errorf("createVolume:: lvcreate command %s error: %v", cmd, err)
 			return err
@@ -434,7 +434,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 		log.Infof("Successful Create Striping LVM volume: %s, with command: %s", volumeID, cmd)
 	} else if lvmType == LinearType {
 		cmd := fmt.Sprintf("%s lvcreate -n %s -L %d%s -Wy -y %s", localtype.NsenterCmd, volumeID, pvSize, unit, vgName)
-		_, err := ns.osTool.RunCommand(cmd)
+		_, err := ns.osTool.RunShellCommand(cmd)
 		if err != nil {
 			log.Errorf("createVolume:: lvcreate linear command %s error: %v", cmd, err)
 			return err
@@ -446,7 +446,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 
 func (ns *nodeServer) removeLVMByDevicePath(devicePath string) error {
 	cmd := fmt.Sprintf("%s lvremove -v -f %s", localtype.NsenterCmd, devicePath)
-	_, err := ns.osTool.RunCommand(cmd)
+	_, err := ns.osTool.RunShellCommand(cmd)
 	if err != nil {
 		log.Errorf("removeLVMByDevicePath:: lvremove command %s error: %v", cmd, err)
 		return err

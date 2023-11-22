@@ -82,6 +82,7 @@ const (
 	VolumeTypeLVM        VolumeType = "LVM"
 	VolumeTypeDevice     VolumeType = "Device"
 	VolumeTypeQuota      VolumeType = "Quota"
+	VolumeTypeHostPath   VolumeType = "HostPath"
 	VolumeTypeUnknown    VolumeType = "Unknown"
 	MediaTypeSSD         MediaType  = "ssd"
 	MediaTypeHDD         MediaType  = "hdd"
