@@ -169,7 +169,7 @@ func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 	}
 	ctx = ctxWithValue(ctx, ctxKeyCreateVolume, reqCtx)
 	if volumeType == string(pkg.VolumeTypeHostPath) {
-		impl := hostPathImpl{cs: cs}
+		impl := hostPathCsImpl{common: cs}
 		return impl.CreateVolume(ctx, req)
 	}
 
@@ -398,7 +398,7 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 	}
 	ctx = ctxWithValue(ctx, ctxKeyDeleteVolume, reqCtx)
 	if volumeType == string(pkg.VolumeTypeHostPath) {
-		impl := hostPathImpl{cs: cs}
+		impl := hostPathCsImpl{common: cs}
 		return impl.DeleteVolume(ctx, req)
 	}
 

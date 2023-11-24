@@ -43,18 +43,16 @@ const (
 	volumeCapacityTag = "_hp_volumeCapacity"
 )
 
-// hostPathImpl implements the CSI interfaces for hostPath volume type
-type hostPathImpl struct {
+// hostPathCsImpl implements the csi.ControllerServer interface for hostPath volume type
+type hostPathCsImpl struct {
 	baseControllerServer
-	baseNodeServer
 
 	// TODO(x.zhou): needs further refactoring to move methods/fields
-	//               from controllerServer/nodeServer to baseControllerServer/baseNodeServer.
-	cs *controllerServer
-	ns *nodeServer
+	//               from controllerServer to baseControllerServer.
+	common *controllerServer
 }
 
-func (impl *hostPathImpl) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if volumeSource := req.GetVolumeContentSource(); volumeSource != nil {
 		return nil, status.Error(codes.Unimplemented, "CreateVolume: volume content source is not supported")
 	}
@@ -84,17 +82,17 @@ func (impl *hostPathImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 	return response, nil
 }
 
-func (impl *hostPathImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+func (cs *hostPathCsImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
 	reqCtx := getValue(ctx, ctxKeyDeleteVolume)
 	volumeID := reqCtx.pv.Name
 	parameters := reqCtx.pv.Spec.CSI.VolumeAttributes
-	_, hostPath, err := impl.getVerifiedHostPath(volumeID, parameters)
+	_, hostPath, err := getVerifiedHostPath(volumeID, parameters)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: getVerifiedHostPath error: %s", err.Error())
 	}
 	nodeName := reqCtx.nodeName
 
-	conn, err := impl.cs.getNodeConn(nodeName)
+	conn, err := cs.common.getNodeConn(nodeName)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to connect to node %s: %s", nodeName, err.Error())
 	}
@@ -106,23 +104,31 @@ func (impl *hostPathImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolum
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
-func (impl *hostPathImpl) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (resp *csi.NodePublishVolumeResponse, err error) {
+// hostPathNsImpl implements the csi.NodeServer interface for hostPath volume type
+type hostPathNsImpl struct {
+	baseNodeServer
+
+	// TODO(x.zhou): needs further refactoring
+	common *nodeServer
+}
+
+func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (resp *csi.NodePublishVolumeResponse, err error) {
 	volumeID := req.GetVolumeId()
 	targetPath := req.GetTargetPath()
 
-	basePath, volumeHostPath, err := impl.getVerifiedHostPath(volumeID, req.VolumeContext)
+	basePath, volumeHostPath, err := getVerifiedHostPath(volumeID, req.VolumeContext)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: getVerifiedHostPath error: %s", err.Error())
 	}
 
 	// create volume directory on the host
-	if err := impl.ns.osTool.MkdirAll(volumeHostPath, 0777); err != nil {
+	if err := ns.common.osTool.MkdirAll(volumeHostPath, 0777); err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: failed to create directory %s: %s", volumeHostPath, err.Error())
 	}
 	defer func() {
 		// clean up volume directory when error
 		if err != nil {
-			_ = impl.ns.osTool.Remove(volumeHostPath)
+			_ = ns.common.osTool.Remove(volumeHostPath)
 		}
 	}()
 
@@ -134,7 +140,7 @@ func (impl *hostPathImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	if err != nil {
 		log.Warningf("NodePublishVolume: failed to get %s, err: %s", volumeCapacityTag, err.Error())
 	} else {
-		setQuotaErr = impl.setProjectQuota(ctx, basePath, volumeHostPath, capacity)
+		setQuotaErr = ns.setProjectQuota(ctx, basePath, volumeHostPath, capacity)
 		if setQuotaErr != nil {
 			log.Warningf("NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
 		} else {
@@ -148,35 +154,22 @@ func (impl *hostPathImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	}
 
 	// mount target path
-	if err := impl.mountHostPathVolume(ctx, req, volumeHostPath); err != nil {
+	if err := ns.mountHostPathVolume(ctx, req, volumeHostPath); err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: %s", err.Error())
 	}
 	log.Infof("NodePublishVolume: mount HostPath volume %s to %s successfully", volumeID, targetPath)
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (impl *hostPathImpl) getVerifiedHostPath(volumeID string, params map[string]string) (string, string, error) {
-	basePath := params[hostPathScTag]
-	if basePath == "" {
-		return "", "", fmt.Errorf("missing %s tag", hostPathScTag)
-	}
-	if basePathPrefix := os.Getenv(hostPathBasePathEnv); basePathPrefix != "" {
-		if !strings.HasPrefix(basePath, basePathPrefix) {
-			return "", "", fmt.Errorf("invalid hostPath (%s), it should have prefix of '%s'", basePath, basePathPrefix)
-		}
-	}
-	return basePath, filepath.Join(basePath, volumeID), nil
-}
-
-func (impl *hostPathImpl) mountHostPathVolume(ctx context.Context, req *csi.NodePublishVolumeRequest, hostPath string) error {
+func (ns *hostPathNsImpl) mountHostPathVolume(ctx context.Context, req *csi.NodePublishVolumeRequest, hostPath string) error {
 	sourcePath := hostPath
 	targetPath := req.TargetPath
 
-	notmounted, err := impl.ns.k8smounter.IsLikelyNotMountPoint(targetPath)
+	notMounted, err := ns.common.k8smounter.IsLikelyNotMountPoint(targetPath)
 	if err != nil {
 		return fmt.Errorf("mountHostPathVolume: check if targetPath %s is mounted: %s", targetPath, err.Error())
 	}
-	if !notmounted {
+	if !notMounted {
 		log.Infof("mountHostPathVolume: volume %s(%s) is already mounted", req.VolumeId, targetPath)
 		return nil
 	}
@@ -192,14 +185,14 @@ func (impl *hostPathImpl) mountHostPathVolume(ctx context.Context, req *csi.Node
 		fsType = mnt.FsType
 	}
 	log.Infof("mountHostPathVolume: mount volume %s to %s with flags %v and fsType %s", req.VolumeId, targetPath, options, fsType)
-	if err = impl.ns.k8smounter.Mount(sourcePath, targetPath, fsType, options); err != nil {
+	if err = ns.common.k8smounter.Mount(sourcePath, targetPath, fsType, options); err != nil {
 		return fmt.Errorf("mountHostPathVolume: fail to mount %s to %s: %s", sourcePath, targetPath, err.Error())
 	}
 	return nil
 }
 
-func (impl *hostPathImpl) setProjectQuota(ctx context.Context, basePath string, volumeHostPath string, capacity int64) error {
-	if notMountPoint, err := impl.ns.k8smounter.IsLikelyNotMountPoint(basePath); err != nil {
+func (ns *hostPathNsImpl) setProjectQuota(ctx context.Context, basePath string, volumeHostPath string, capacity int64) error {
+	if notMountPoint, err := ns.common.k8smounter.IsLikelyNotMountPoint(basePath); err != nil {
 		return fmt.Errorf("setProjectQuota: failed to check if basePath %s is mounted, err: %s", basePath, err.Error())
 	} else if notMountPoint {
 		return fmt.Errorf("setProjectQuota: basePath %s is not a mount point, unable to set quota", basePath)
@@ -253,7 +246,7 @@ fi
 		lockFileName = "setquota.lock"
 	)
 	lockfile := filepath.Join(basePath, lockFileName)
-	out, err := impl.ns.osTool.RunCommand("flock", []string{
+	out, err := ns.common.osTool.RunCommand("flock", []string{
 		"-w", lockTimeout, "-x", lockfile, "-c", strBuilder.String(),
 	})
 	if err != nil {
@@ -261,4 +254,17 @@ fi
 	}
 	log.Infof("setProjectQuota: cmd output: %s, err: %v", out, err)
 	return err
+}
+
+func getVerifiedHostPath(volumeID string, params map[string]string) (string, string, error) {
+	basePath := params[hostPathScTag]
+	if basePath == "" {
+		return "", "", fmt.Errorf("missing %s tag", hostPathScTag)
+	}
+	if basePathPrefix := os.Getenv(hostPathBasePathEnv); basePathPrefix != "" {
+		if !strings.HasPrefix(basePath, basePathPrefix) {
+			return "", "", fmt.Errorf("invalid hostPath (%s), it should have prefix of '%s'", basePath, basePathPrefix)
+		}
+	}
+	return basePath, filepath.Join(basePath, volumeID), nil
 }
