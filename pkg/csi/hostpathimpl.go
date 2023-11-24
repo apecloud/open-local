@@ -137,8 +137,9 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	var setQuotaErr error
 	tags := tags(req.VolumeContext)
 	capacity, err := tags.GetInt64(volumeCapacityTag)
-	if err != nil {
-		log.Warningf("NodePublishVolume: failed to get %s, err: %s", volumeCapacityTag, err.Error())
+	if err != nil || capacity <= 0 {
+		log.Warningf("NodePublishVolume: invalid tag %s='%s', err: %v",
+			volumeCapacityTag, tags[volumeCapacityTag], err)
 	} else {
 		setQuotaErr = ns.setProjectQuota(ctx, basePath, volumeHostPath, capacity)
 		if setQuotaErr != nil {
