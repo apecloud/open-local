@@ -17,16 +17,21 @@ limitations under the License.
 package csi
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"text/template"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	log "k8s.io/klog/v2"
 
 	"github.com/alibaba/open-local/pkg"
@@ -41,6 +46,11 @@ const (
 
 	// internal tags, the prefix is added to avoid conflicts with other public tags
 	volumeCapacityTag = "_hp_volumeCapacity"
+
+	ioThrottlingWbpsTag  = "iothrottling.wbps"
+	ioThrottlingWiopsTag = "iothrottling.wiops"
+	ioThrottlingRbpsTag  = "iothrottling.rbps"
+	ioThrottlingRiopsTag = "iothrottling.riops"
 )
 
 // hostPathCsImpl implements the csi.ControllerServer interface for hostPath volume type
@@ -152,6 +162,12 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	if enforceCapacityLimit && !setQuotaDone {
 		return nil, status.Errorf(codes.Internal,
 			"NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
+	}
+
+	if err := ns.setIOThrotting(ctx, basePath, req); err != nil {
+		log.Errorf("set io throtting failed: %v", err)
+		return nil, status.Errorf(codes.Internal,
+			"NodePublishVolume: failed to set io limit, err: %s", err)
 	}
 
 	// mount target path
@@ -268,4 +284,156 @@ func getVerifiedHostPath(volumeID string, params map[string]string) (string, str
 		}
 	}
 	return basePath, filepath.Join(basePath, volumeID), nil
+}
+
+func (ns *hostPathNsImpl) setIOThrotting(ctx context.Context, basePath string, req *csi.NodePublishVolumeRequest) error {
+	var (
+		err                      error
+		invalidKey               string
+		wbps, wiops              uint64
+		rbps, riops              uint64
+		podUid                   string
+		podName, podNamespace    string
+		podQos                   corev1.PodQOSClass
+		deviceMajor, deviceMinor uint32
+	)
+	tags := tags(req.VolumeContext)
+	atou := func(key string) uint64 {
+		if err != nil {
+			return 0
+		}
+		val, ok := tags[key]
+		if !ok {
+			return 0
+		}
+		u, e := strconv.ParseUint(val, 10, 64)
+		if e != nil {
+			err = e
+			invalidKey = key
+		}
+		if u == 0 {
+			err = fmt.Errorf("key '%s' can not be set to zero", key)
+		}
+		return u
+	}
+
+	wbps = atou(ioThrottlingWbpsTag)
+	wiops = atou(ioThrottlingWiopsTag)
+	rbps = atou(ioThrottlingRbpsTag)
+	riops = atou(ioThrottlingRiopsTag)
+	if err != nil {
+		return fmt.Errorf("invalid tag: %s: %s, err: %v", invalidKey, tags[invalidKey], err)
+	}
+	log.Infof("wbps=%d wiops=%d rbps=%d riops=%d", wbps, wiops, rbps, riops)
+	if wbps == 0 && riops == 0 && rbps == 0 && wiops == 0 {
+		return nil
+	}
+	podUid = tags.Get(pkg.PodUID)
+	podName = tags.Get(pkg.PodName)
+	podNamespace = tags.Get(pkg.PodNamespace)
+	log.Infof("podUid=%s, podName=%s, podNamespace=5s", podUid, podName, podNamespace)
+	podQos, err = ns.getPodQoS(ctx, podName, podNamespace)
+	if err != nil {
+		return fmt.Errorf("can not find pos's qos class, err: %v", err)
+	}
+	deviceMajor, deviceMinor, err = ns.getDeviceNumber(basePath)
+	if err != nil {
+		return fmt.Errorf("failed to get device %s number: %v", basePath, err)
+	}
+	log.Infof("device number: %d:%d", deviceMajor, deviceMinor)
+	cgroupPath, err := getCgroupParentDirOfPod(ns.common.cgroupFsRoot, podUid, ns.common.cgroupVersion, ns.common.cgroupDriver, podQos)
+	if err != nil {
+		return fmt.Errorf("failed to get cgroup path of pod, err: %v", err)
+	}
+	log.Infof("pod %s cgroup path on host: %s", podUid, cgroupPath)
+
+	switch ns.common.cgroupVersion {
+	case cgroupV1:
+		return ns.setIOLimitByCgroupV1(cgroupPath, wbps, rbps, wiops, riops, deviceMajor, deviceMinor)
+	case cgroupV2:
+		return ns.setIOLimitByCgroupV2(cgroupPath, wbps, rbps, wiops, riops, deviceMajor, deviceMinor)
+	default:
+		return errors.New("invalid cgroup version")
+	}
+}
+
+func (ns *hostPathNsImpl) setIOLimitByCgroupV2(cgroupPath string, wbps, rbps, wiops, riops uint64, deviceMajor, deviceMinor uint32) error {
+	limitFile := filepath.Join(cgroupPath, "io.max")
+	getDesc := func(u uint64) string {
+		if u == 0 {
+			return "max"
+		}
+		return fmt.Sprintf("%d", u)
+	}
+	// TODO(gufeijun) use native go code
+	cmd := fmt.Sprintf(`echo "%d:%d wbps=%s wiops=%s rbps=%s riops=%s" > %s`,
+		deviceMajor, deviceMinor, getDesc(wbps), getDesc(wiops), getDesc(rbps), getDesc(riops), limitFile)
+	_, err := ns.common.osTool.RunCommand("sh", []string{"-c", cmd})
+	return err
+}
+
+func (ns *hostPathNsImpl) setIOLimitByCgroupV1(cgroupPath string, wbps, rbps, wiops, riops uint64, deviceMajor, deviceMinor uint32) error {
+	// TODO(gufeijun) support cgroup v1
+	return errors.New("cgroup v1 is not implemented")
+}
+
+func (ns *hostPathNsImpl) getDeviceNumber(basepath string) (uint32, uint32, error) {
+	// TODO(gufeijun) use native go code
+	device, err := ns.common.osTool.RunCommand("sh", []string{"-c", fmt.Sprintf("df -P %s | tail -n 1 | awk '{print $1}'", basepath)})
+	if err != nil {
+		return 0, 0, err
+	}
+	device = strings.TrimSpace(device)
+	log.Info("device of basepath '%s' is '%s'", basepath, device)
+
+	fileInfo, err := os.Stat(device)
+	if err != nil {
+		return 0, 0, err
+	}
+	stat := fileInfo.Sys().(*syscall.Stat_t)
+	major := uint32(stat.Rdev / 256)
+	minor := uint32(stat.Rdev % 256)
+	return major, minor, nil
+}
+
+func (ns *hostPathNsImpl) getPodQoS(ctx context.Context, podName, podNamespace string) (corev1.PodQOSClass, error) {
+	pod, err := ns.common.options.kubeclient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	return pod.Status.QOSClass, nil
+}
+
+func getCgroupParentDirOfPod(cgroupSysPath, podUid string,
+	cgroupVersion cgroupVersion, cgroupDriver cgroupDriver, podQos corev1.PodQOSClass) (string, error) {
+	var path string
+	path = cgroupSysPath
+	if cgroupVersion == cgroupV1 {
+		path = filepath.Join(path, "blkio")
+	}
+	switch cgroupDriver {
+	case cgroupDriverSystemd:
+		podUid = strings.ReplaceAll(podUid, "-", "_")
+		path = filepath.Join(path, "kubepods.slice")
+		if podQos == corev1.PodQOSBurstable {
+			path = filepath.Join(path, "kubepods-burstable.slice")
+			path = filepath.Join(path, fmt.Sprintf("kubepods-burstable-pod%s.slice", podUid))
+		} else if podQos == corev1.PodQOSBestEffort {
+			path = filepath.Join(path, "kubepods-besteffort.slice")
+			path = filepath.Join(path, fmt.Sprintf("kubepods-besteffort-pod%s.slice", podUid))
+		} else {
+			path = filepath.Join(path, fmt.Sprintf("kubepods-pod%s.slice", podUid))
+		}
+	case cgroupDriverCgroupfs:
+		path = filepath.Join(path, "kubepods")
+		if podQos == corev1.PodQOSBurstable {
+			path = filepath.Join(path, "burstable")
+		} else if podQos == corev1.PodQOSBestEffort {
+			path = filepath.Join(path, "besteffort")
+		}
+		path = filepath.Join(path, fmt.Sprintf("pod%s", podUid))
+	default:
+		return "", errors.New("invalid cgroup driver")
+	}
+	return path, nil
 }

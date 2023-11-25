@@ -19,6 +19,7 @@ package csi
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,11 +44,30 @@ import (
 	utilexec "k8s.io/utils/exec"
 )
 
+type cgroupVersion int
+
+const (
+	cgroupUnknown cgroupVersion = iota
+	cgroupV1
+	cgroupV2
+)
+
+type cgroupDriver string
+
+const (
+	cgroupDriverSystemd  = "systemd"
+	cgroupDriverCgroupfs = "cgroupfs"
+)
+
 type nodeServer struct {
 	k8smounter           *mountutils.SafeFormatAndMount
 	ephemeralVolumeStore Store
 	inFlight             *InFlight
 	osTool               OSTool
+
+	cgroupFsRoot  string
+	cgroupVersion cgroupVersion
+	cgroupDriver  cgroupDriver
 
 	options *driverOptions
 }
@@ -58,6 +78,18 @@ func newNodeServer(options *driverOptions) *nodeServer {
 		log.Fatalf("fail to initialize ephemeral volume store: %s", err.Error())
 	}
 
+	cgroupFsRoot, cgroupVersion, err := detectCgroupFsRootDir()
+	if err != nil {
+		log.Fatalf("fail to detect cgroup fs root directory: %v", err)
+	}
+
+	cgroupDriver, err := detectCgroupDriver()
+	if err != nil {
+		log.Fatalf("fail to detect cgroup driver: %v", err)
+	}
+
+	log.Infof("Node info: cgroup root(%s), cgroup version(%d), cgroupDriver(%s)", cgroupFsRoot, cgroupVersion, cgroupDriver)
+
 	ns := &nodeServer{
 		k8smounter: &mountutils.SafeFormatAndMount{
 			Interface: mountutils.New(""),
@@ -66,10 +98,101 @@ func newNodeServer(options *driverOptions) *nodeServer {
 		ephemeralVolumeStore: store,
 		inFlight:             NewInFlight(),
 		osTool:               NewOSTool(),
+		cgroupFsRoot:         cgroupFsRoot,
+		cgroupVersion:        cgroupVersion,
+		cgroupDriver:         cgroupDriver,
 		options:              options,
 	}
 
 	return ns
+}
+
+func detectCgroupDriver() (cgroupDriver, error) {
+	return cgroupDriverSystemd, nil
+	// TODO(gufeijun) do not have permission to access nodes/proxy
+	// nodeName := os.Getenv("KUBE_NODE_NAME")
+	// if len(nodeName) == 0 {
+	// 	return "", errors.New("can not get node's name")
+	// }
+	// log.Infof("NodeName: %s", nodeName)
+
+	// req := ns.common.options.kubeclient.CoreV1().RESTClient().Get().
+	// 	Resource("nodes").
+	// 	Name(nodeName).
+	// 	Suffix("proxy/configz")
+
+	// result := req.Do(ctx)
+	// if result.Error() != nil {
+	// 	return "", result.Error()
+	// }
+	// resp, err := result.Raw()
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	// log.Infof("getCgroupDriver: api response: %s", resp)
+	// m := make(map[interface{}]interface{})
+	// if err := json.Unmarshal(resp, &m); err != nil {
+	// 	return "", err
+	// }
+	// kubeletCfg, ok := m["kubeletconfig"]
+	// if !ok {
+	// 	return "", errors.New("can not find kubelete config")
+	// }
+	// m, ok = kubeletCfg.(map[interface{}]interface{})
+	// if !ok {
+	// 	return "", errors.New("can not find kubelete config")
+	// }
+	// driver, ok := m["cgroupDriver"]
+	// if !ok {
+	// 	return cgroupDriverSystemd, nil
+	// }
+	// driverStr, ok := driver.(string)
+	// if !ok {
+	// 	return "", errors.New("invalid cgroup driver")
+	// }
+	// return cgroupDriver(driverStr), nil
+}
+
+func detectCgroupFsRootDir() (path string, version cgroupVersion, err error) {
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		err = fmt.Errorf("fail to open /proc/mounts: %v", err)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+
+		if len(fields) < 2 {
+			continue
+		}
+
+		if fields[0] == "cgroup2" {
+			version = cgroupV2
+			path = fields[1]
+			break
+		}
+
+		if fields[0] == "cgroup1" {
+			if version == cgroupV2 {
+				continue
+			}
+			version = cgroupV1
+			path = fields[1]
+		}
+	}
+	if err = scanner.Err(); err != nil {
+		err = fmt.Errorf("fail to read /proc/mounts: %v", err)
+		return
+	}
+	if version == cgroupUnknown {
+		err = errors.New("no mounted cgroup file system found")
+	}
+	return
 }
 
 // volume_id: yoda-70597cb6-c08b-4bbb-8d41-c4afcfa91866

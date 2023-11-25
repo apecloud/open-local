@@ -129,6 +129,25 @@ volumeBindingMode: WaitForFirstConsumer
 # TODO(x.zhou): allow volume expansion
 allowVolumeExpansion: false
 ---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageclass.hostpath.name }}-io-limit
+  annotations:
+{{ include "local.labels" . | indent 2 }}
+provisioner: {{ .Values.driver }}
+parameters:
+  volumeType: "HostPath"
+  hostPath: "/mnt/{{ .Values.name }}/localpvs"
+  enforceCapacityLimit: "true"
+  iothrottling.wbps: "1048576"
+  # iothrottling.wiops: ""
+  iothrottling.rbps: "1048576"
+  # iothrottling.riops: ""
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:
