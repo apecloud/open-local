@@ -15,6 +15,11 @@ ARG TARGETARCH
 
 ARG GOPROXY=https://proxy.golang.org,direct
 
+# from https://skaffold.dev/docs/workflows/debug/#go-runtime-go
+# when using `skaffold debug`, skaffold will inject 'all=-N -l' to this argument
+# to disable optimizations and inlining
+ARG SKAFFOLD_GO_GCFLAGS
+
 WORKDIR /src
 
 # cache deps before building and copying source so that we don't need to re-download as much
@@ -27,11 +32,11 @@ RUN --mount=type=bind,target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go env && \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} OUTPUT_DIR=/out make build
+    SKAFFOLD_GO_GCFLAGS=${SKAFFOLD_GO_GCFLAGS} GOOS=${TARGETOS} GOARCH=${TARGETARCH} OUTPUT_DIR=/out make build
 
 FROM alpine:3.18
 LABEL maintainers="Alibaba Cloud Authors"
 LABEL description="open-local is a local disk management system"
 RUN apk add --no-cache util-linux coreutils e2fsprogs e2fsprogs-extra xfsprogs xfsprogs-extra blkid file open-iscsi jq quota-tools
 COPY --from=builder /out/open-local /bin/open-local
-ENTRYPOINT ["open-local"]
+ENTRYPOINT ["/bin/open-local"]

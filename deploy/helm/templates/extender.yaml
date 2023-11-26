@@ -42,7 +42,7 @@ spec:
         - scheduler
         - --port={{ .Values.extender.port }}
         - --scheduler-strategy={{ .Values.extender.strategy }}
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.extenderImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         name: {{ .Values.name }}-scheduler-extender
         resources:
@@ -64,9 +64,6 @@ metadata:
   name: {{ .Values.name }}-scheduler-extender
   namespace: {{ .Values.namespace }}
 spec:
-{{- if .Values.global.YodaSchedulerSvcIP }}
-  clusterIP: {{ .Values.global.YodaSchedulerSvcIP }}
-{{- end }}
   selector:
     app.kubernetes.io/name: {{ .Values.name }}
     app.kubernetes.io/component: {{ .Values.name }}-scheduler-extender
