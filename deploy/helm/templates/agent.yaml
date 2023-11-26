@@ -115,6 +115,7 @@ spec:
         - "--endpoint=$(CSI_ENDPOINT)"
         - "--nodeID=$(KUBE_NODE_NAME)"
         - "--driver={{ .Values.driver }}"
+        - "--self-pod-uid=$(SELF_POD_UID)"
 {{- if eq .Values.agent.driverMode "node" }}
         - "--driver-mode=node"
 {{- else }}
@@ -129,6 +130,11 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
+        - name: SELF_POD_UID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.uid
         - name: CSI_ENDPOINT
           value: unix:/{{ .Values.agent.kubelet_dir }}/plugins/{{ .Values.driver }}/csi.sock
         - name: TZ

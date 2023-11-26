@@ -28,6 +28,7 @@ type csiOption struct {
 	NodeID                  string
 	Driver                  string
 	SysPath                 string
+	SelfPodUID              string
 	GrpcConnectionTimeout   int
 	LVMDPort                string
 	CgroupDriver            string
@@ -51,6 +52,7 @@ func (option *csiOption) addFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&option.NodeID, "nodeID", "", "the id of node")
 	fs.StringVar(&option.Driver, "driver", csi.DefaultDriverName, "the name of CSI driver")
 	fs.StringVar(&option.SysPath, "path.sysfs", "/host_sys", "Path of sysfs mountpoint")
+	fs.StringVar(&option.SelfPodUID, "self-pod-uid", "", "the UID of the current Pod")
 	fs.IntVar(&option.GrpcConnectionTimeout, "grpc-connection-timeout", csi.DefaultConnectTimeout, "grpc connection timeout(second)")
 	fs.StringVar(&option.LVMDPort, "lvmdPort", "1736", "Port of lvm daemon")
 	fs.StringVar(&option.CgroupDriver, "cgroupDriver", "systemd", "the name of cgroup driver")

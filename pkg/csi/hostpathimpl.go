@@ -180,25 +180,26 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	}()
 
 	// set project quota
-	setQuotaDone := false
 	var setQuotaErr error
 	tags := tags(req.VolumeContext)
 	capacity, err := tags.GetInt64(volumeCapacityTag)
 	if err != nil || capacity <= 0 {
-		log.Warningf("NodePublishVolume: invalid tag %s='%s', err: %v",
-			volumeCapacityTag, tags[volumeCapacityTag], err)
+		setQuotaErr = fmt.Errorf("%s tag is not found or invalid, err: %v", volumeCapacityTag, err.Error())
 	} else {
 		setQuotaErr = ns.setProjectQuota(ctx, basePath, volumeHostPath, capacity)
-		if setQuotaErr != nil {
-			log.Warningf("NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
-		} else {
-			setQuotaDone = true
-		}
 	}
 	enforceCapacityLimit, _ := tags.GetBool(enforceCapacityLimitScTag)
-	if enforceCapacityLimit && !setQuotaDone {
+	if enforceCapacityLimit && setQuotaErr != nil {
+		log.Errorf("NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
 		return nil, status.Errorf(codes.Internal,
-			"NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
+			"NodePublishVolume: failed to set project quota, err: %v", setQuotaErr)
+	}
+
+	// set IO throttling
+	if err := ns.setIOThrottlingHostPath(ctx, req, basePath); err != nil {
+		log.Errorf("NodePublishVolume: failed to set IO throttling, err: %s", err)
+		return nil, status.Errorf(codes.Internal,
+			"NodePublishVolume: failed to set IO throttling, err: %s", err)
 	}
 
 	// mount target path
@@ -305,6 +306,36 @@ func (ns *hostPathNsImpl) mountHostPathVolume(ctx context.Context, req *csi.Node
 		return fmt.Errorf("mountHostPathVolume: fail to mount %s to %s: %s", sourcePath, targetPath, err.Error())
 	}
 	return nil
+}
+
+func (ns *hostPathNsImpl) setIOThrottlingHostPath(ctx context.Context, req *csi.NodePublishVolumeRequest, basePath string) error {
+	volumeID := req.VolumeId
+	containsValue, _, _, err := requireThrottleIO(req.VolumeContext)
+	if err != nil {
+		return fmt.Errorf("invalid bps or iops parameter in storage class: %s", err)
+	}
+	if !containsValue {
+		log.Infof("no need to set throttle for volume %s", volumeID)
+		return nil
+	}
+	// find major and minor device type of the hostPath
+	cmd := fmt.Sprintf("findmnt --target %s -o MAJ:MIN -r -n", basePath)
+	output, err := ns.common.osTool.RunShellCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
+	}
+	output = strings.TrimSpace(output)
+	parts := strings.Split(output, ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid output of cmd '%s': %s", cmd, output)
+	}
+	major, err1 := strconv.ParseUint(parts[0], 10, 64)
+	minor, err2 := strconv.ParseUint(parts[1], 10, 64)
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf("invalid output of cmd '%s': %s, err1: %v, err2: %v",
+			cmd, output, err1, err2)
+	}
+	return ns.common.setIOThrottling(ctx, req, major, minor)
 }
 
 func (ns *hostPathNsImpl) setProjectQuota(ctx context.Context, basePath string, volumeHostPath string, capacity int64) error {

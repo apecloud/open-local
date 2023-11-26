@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	clientset "github.com/alibaba/open-local/pkg/generated/clientset/versioned"
-	"github.com/alibaba/open-local/pkg/utils"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	snapshot "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned"
 	"golang.org/x/net/context"
@@ -39,6 +38,7 @@ type driverOptions struct {
 	nodeID                  string
 	endpoint                string
 	sysPath                 string
+	selfPodUID              string
 	cgroupDriver            string
 	grpcConnectionTimeout   int
 	mode                    string
@@ -105,8 +105,6 @@ func NewDriver(driverName, nodeID, endpoint string, opts ...Option) *CSIPlugin {
 		log.Fatalf("unknown mode: %s", driverOptions.mode)
 	}
 
-	utils.SetupCgroupPathFormatter(utils.CgroupDriverType(driverOptions.cgroupDriver))
-
 	return plugin
 }
 
@@ -158,6 +156,12 @@ func (plugin *CSIPlugin) Stop() {
 func WithSysPath(sysPath string) Option {
 	return func(o *driverOptions) {
 		o.sysPath = sysPath
+	}
+}
+
+func WithSelfPodUID(podUID string) Option {
+	return func(o *driverOptions) {
+		o.selfPodUID = podUID
 	}
 }
 
