@@ -62,6 +62,12 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 	volumeID := req.GetName()
 	parameters := req.GetParameters()
 
+	// verifying the hostPath parameter
+	_, _, err := getVerifiedHostPath(volumeID, parameters)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: getVerifiedHostPath error: %s", err.Error())
+	}
+
 	// TODO(x.zhou): interact with the scheduler to see if there is sufficient space to allocate
 
 	parameters[pkg.AnnoSelectedNode] = nodeName
