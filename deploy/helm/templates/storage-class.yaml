@@ -107,7 +107,7 @@ metadata:
 provisioner: {{ .Values.driver }}
 parameters:
   volumeType: "HostPath"
-  hostPath: "/mnt/{{ .Values.name }}/localpvs"
+  hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 # TODO(x.zhou): allow volume expansion
@@ -122,8 +122,24 @@ metadata:
 provisioner: {{ .Values.driver }}
 parameters:
   volumeType: "HostPath"
-  hostPath: "/mnt/{{ .Values.name }}/localpvs"
+  hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
   enforceCapacityLimit: "true"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+# TODO(x.zhou): allow volume expansion
+allowVolumeExpansion: false
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageclass.hostpath.name }}-io-throttling
+{{ include "local.labels" . | indent 2 }}
+provisioner: {{ .Values.driver }}
+parameters:
+  volumeType: "HostPath"
+  hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
+  bps: "10485760"
+  iops: "1024"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 # TODO(x.zhou): allow volume expansion

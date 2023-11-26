@@ -71,6 +71,9 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 
 	// TODO(x.zhou): interact with the scheduler to see if there is sufficient space to allocate
 
+	// TODO(x.zhou): if io throttling is enabled, check if the basePath on the node is backed by a block device.
+	//               otherwise it will fail to set cgroups blkio in the NodePublishVolume().
+
 	parameters[pkg.AnnoSelectedNode] = nodeName
 	parameters[volumeCapacityTag] = fmt.Sprintf("%d", req.GetCapacityRange().GetRequiredBytes())
 	response := &csi.CreateVolumeResponse{
@@ -216,10 +219,17 @@ func (ns *hostPathNsImpl) setIOThrottlingHostPath(ctx context.Context, req *csi.
 	if err != nil {
 		return fmt.Errorf("exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
 	}
-	output = strings.TrimSpace(output)
-	parts := strings.Split(output, ":")
+
+	// check if it is a real block device
+	majMin := strings.TrimSpace(output)
+	_, err = ns.common.osTool.Stat(fmt.Sprintf("%s/dev/block/%s", ns.common.options.sysPath, majMin))
+	if os.IsNotExist(err) {
+		return fmt.Errorf("the underlay device type for '%s' is %s, but it's not a real block device", basePath, majMin)
+	}
+
+	parts := strings.Split(majMin, ":")
 	if len(parts) != 2 {
-		return fmt.Errorf("invalid output of cmd '%s': %s", cmd, output)
+		return fmt.Errorf("invalid output of cmd '%s': %s", cmd, majMin)
 	}
 	major, err1 := strconv.ParseUint(parts[0], 10, 64)
 	minor, err2 := strconv.ParseUint(parts[1], 10, 64)
