@@ -39,7 +39,7 @@ type LvmCmd interface {
 	ListVG() ([]*lib.VG, error)
 	CreateVG(ctx context.Context, name string, physicalVolume string, tags []string) (string, error)
 	RemoveVG(ctx context.Context, name string) (string, error)
-	CleanPath(ctx context.Context, path string) error
+	CleanPath(ctx context.Context, path string, includeItself bool) error
 	CleanDevice(ctx context.Context, device string) (string, error)
 }
 
@@ -179,7 +179,7 @@ func (s Server) RemoveVG(ctx context.Context, in *lib.CreateVGRequest) (*lib.Rem
 
 // CleanPath remove file under path
 func (s Server) CleanPath(ctx context.Context, in *lib.CleanPathRequest) (*lib.CleanPathReply, error) {
-	err := s.impl.CleanPath(ctx, in.Path)
+	err := s.impl.CleanPath(ctx, in.Path, in.IncludeItself)
 	if err != nil {
 		log.Errorf("CleanPath with error: %s", err.Error())
 		return nil, status.Errorf(codes.Internal, "failed to remove vg: %v", err)

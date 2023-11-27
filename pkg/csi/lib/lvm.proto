@@ -233,6 +233,7 @@ message RemoveTagLVReply {
 
 message CleanPathRequest {
   string path = 1;
+  bool include_itself = 2;
 }
 
 message CleanPathReply {

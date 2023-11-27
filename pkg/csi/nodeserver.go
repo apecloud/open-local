@@ -139,7 +139,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 	}
 
-	// Step 4: switch
+	// Step 4: mount
 	volCap := req.GetVolumeCapability()
 	switch volumeType {
 	case string(pkg.VolumeTypeLVM):
@@ -176,6 +176,9 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 				return nil, status.Errorf(codes.Internal, "NodePublishVolume(FileSystem): fail to mount device volume %s with path %s: %s", volumeID, targetPath, err.Error())
 			}
 		}
+	case string(pkg.VolumeTypeHostPath):
+		impl := &hostPathNsImpl{common: ns}
+		return impl.NodePublishVolume(ctx, req)
 	default:
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: unsupported volume %s with type %s", volumeID, volumeType)
 	}

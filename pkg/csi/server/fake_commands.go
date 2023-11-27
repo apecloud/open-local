@@ -79,7 +79,7 @@ func (fake *FakeCommands) ListVG() ([]*lib.VG, error) {
 		},
 	}, nil
 }
-func (fake *FakeCommands) CleanPath(ctx context.Context, path string) error {
+func (fake *FakeCommands) CleanPath(ctx context.Context, path string, includeItself bool) error {
 	return nil
 }
 func (fake *FakeCommands) CleanDevice(ctx context.Context, device string) (string, error) {

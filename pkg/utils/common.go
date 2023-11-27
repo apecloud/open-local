@@ -478,7 +478,8 @@ func IsOpenLocalPV(pv *corev1.PersistentVolume) (bool, localtype.VolumeType) {
 func LocalPVType(sc *storagev1.StorageClass) localtype.VolumeType {
 	if t, ok := sc.Parameters[localtype.VolumeTypeKey]; ok {
 		switch localtype.VolumeType(t) {
-		case localtype.VolumeTypeMountPoint, localtype.VolumeTypeDevice, localtype.VolumeTypeLVM, localtype.VolumeTypeQuota:
+		case localtype.VolumeTypeMountPoint, localtype.VolumeTypeDevice,
+			localtype.VolumeTypeLVM, localtype.VolumeTypeQuota, localtype.VolumeTypeHostPath:
 			return localtype.VolumeType(t)
 		default:
 			return localtype.VolumeTypeUnknown
@@ -648,11 +649,21 @@ func Format(source, fsType string) error {
 // CommandRunFunc define the run function in utils for ut
 type CommandRunFunc func(cmd string) (string, error)
 
-// Run run shell command
+// Run runs a shell command
 func Run(cmd string) (string, error) {
 	out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("Failed to run cmd: " + cmd + ", with out: " + string(out) + ", with error: " + err.Error())
+		return "", errors.New("Failed to run cmd: " + cmd + ", with out: " + string(out) + ", with error: " + err.Error())
+	}
+	return string(out), nil
+}
+
+// RunCmd runs a command
+func RunCmd(name string, args []string) (string, error) {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		cmd := name + " " + strings.Join(args, " ")
+		return "", errors.New("Failed to run cmd: " + cmd + ", with out: " + string(out) + ", with error: " + err.Error())
 	}
 	return string(out), nil
 }
