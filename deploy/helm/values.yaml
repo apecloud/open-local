@@ -7,6 +7,7 @@ images:
   local:
     image: apecloud/open-local
     # will follow .Chart.AppVersion if the tag field is empty
+    tag:
   registrar:
     image: ecp_builder/csi-node-driver-registrar
     tag: v2.3.0
