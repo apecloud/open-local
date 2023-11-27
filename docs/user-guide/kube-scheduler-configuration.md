@@ -1,10 +1,10 @@
 # kube-scheduler configuration
 
-If kube-scheduler in your cluster is [static pod](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/), Open-Local will run a Job in every master node to edit your /etc/kubernetes/manifests/kube-scheduler.yaml file by default, you can see it in [init-job](./../../helm/templates/init-job.yaml) file.
+If kube-scheduler in your cluster is [static pod](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/), Open-Local will run a Job in every master node to edit your /etc/kubernetes/manifests/kube-scheduler.yaml file by default, you can see it in [init-job](./../../deploy/helm/templates/init-job.yaml) file.
 
 And you can also configure your kube-scheduler manually, especially when kube-scheduler in the cluster are not static pod.
 
-Set .extender.init_job to false in [values.yaml](../../helm/values.yaml) before install Open-Local, this will not run init-job.
+Set .extender.init_job to false in [values.yaml](../../deploy/helm/values.yaml) before install Open-Local, this will not run init-job.
 
 Create a file, name it kube-scheduler-configuration.yaml, and put it in /etc/kubernetes/ path of every master node.
 

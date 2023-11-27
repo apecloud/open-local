@@ -2,7 +2,6 @@ package csi
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,9 +12,7 @@ import (
 	"github.com/alibaba/open-local/pkg/csi/server"
 	"github.com/alibaba/open-local/pkg/restic"
 	"github.com/alibaba/open-local/pkg/utils"
-	spdk "github.com/alibaba/open-local/pkg/utils/spdk"
 	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,7 +24,7 @@ import (
 	"k8s.io/mount-utils"
 )
 
-func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRequest) (string, string, error) {
+func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRequest) (string, error) {
 	vgName := ""
 	ephemeralVolume := req.VolumeContext[pkg.Ephemeral] == "true"
 	if ephemeralVolume {
@@ -37,11 +34,11 @@ func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRe
 		pvName := req.VolumeContext[pkg.PVName]
 		pv, err := ns.options.kubeclient.CoreV1().PersistentVolumes().Get(context.Background(), pvName, metav1.GetOptions{})
 		if err != nil {
-			return "", "", fmt.Errorf("createLV: fail to get pv: %s", err.Error())
+			return "", fmt.Errorf("createLV: fail to get pv: %s", err.Error())
 		}
 		vgName = utils.GetVGNameFromCsiPV(pv)
 		if vgName == "" {
-			return "", "", status.Errorf(codes.Internal, "error with input vgName is empty, pv is %s", pvName)
+			return "", status.Errorf(codes.Internal, "error with input vgName is empty, pv is %s", pvName)
 		}
 	}
 
@@ -63,20 +60,14 @@ func (ns *nodeServer) createLV(ctx context.Context, req *csi.NodePublishVolumeRe
 	}
 	devicePath := filepath.Join("/dev/", vgName, volumeID)
 	if _, err := ns.osTool.Stat(devicePath); os.IsNotExist(err) {
-		newDev, bdevName, err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
+		err := ns.createVolume(req.VolumeContext, volumeID, vgName, lvmType)
 		if err != nil {
 			log.Errorf("createLV: create volume %s with error: %s", volumeID, err.Error())
-			return "", "", status.Error(codes.Internal, err.Error())
-		}
-
-		if ns.spdkSupported {
-			return newDev, bdevName, nil
-		} else {
-			return devicePath, "", nil
+			return "", status.Error(codes.Internal, err.Error())
 		}
 	}
 
-	return devicePath, "", nil
+	return devicePath, nil
 }
 
 func collectMountOptions(fsType string, mntFlags []string) []string {
@@ -96,7 +87,7 @@ func (ns *nodeServer) mountLvmFS(ctx context.Context, req *csi.NodePublishVolume
 	// target path
 	targetPath := req.TargetPath
 	// device path
-	devicePath, _, err := ns.createLV(ctx, req)
+	devicePath, err := ns.createLV(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -211,7 +202,7 @@ func (ns *nodeServer) mountLvmBlock(ctx context.Context, req *csi.NodePublishVol
 	// target path
 	targetPath := req.TargetPath
 	// device path
-	devicePath, _, err := ns.createLV(ctx, req)
+	devicePath, err := ns.createLV(ctx, req)
 	if err != nil {
 		return fmt.Errorf("mountLvmBlock: fail to create lv: %s", err.Error())
 	}
@@ -392,7 +383,7 @@ func (ns *nodeServer) mountDeviceVolumeBlock(ctx context.Context, req *csi.NodeP
 }
 
 // create lvm volume
-func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vgName, lvmType string) (string, string, error) {
+func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vgName, lvmType string) error {
 	var err error
 	var pvSize int64
 	var unit string
@@ -404,63 +395,27 @@ func (ns *nodeServer) createVolume(volumeContext map[string]string, volumeID, vg
 		}
 		quan, err := resource.ParseQuantity(sizeStr)
 		if err != nil {
-			return "", "", err
+			return err
 		}
 		pvSize = quan.Value() / 1024 / 1024
 		unit = "m"
 	} else {
 		pvSize, unit, _, err = getPvInfo(ns.options.kubeclient, volumeID)
 		if err != nil {
-			return "", "", err
+			return err
 		}
 	}
 
 	// check vg exist
-	if !ns.spdkSupported {
-		ckCmd := fmt.Sprintf("%s vgck %s", localtype.NsenterCmd, vgName)
-		_, err = ns.osTool.RunCommand(ckCmd)
-		if err != nil {
-			log.Errorf("createVolume:: VG is not exist: %s", vgName)
-			return "", "", err
-		}
+	ckCmd := fmt.Sprintf("%s vgck %s", localtype.NsenterCmd, vgName)
+	_, err = ns.osTool.RunShellCommand(ckCmd)
+	if err != nil {
+		log.Errorf("createVolume:: VG is not exist: %s", vgName)
+		return err
 	}
 
 	// Create lvm volume
-	if ns.spdkSupported {
-		lvName := spdk.EnsureLVNameValid(volumeID)
-
-		bdevName, err := ns.spdkclient.CreateLV(vgName, lvName, uint64(pvSize*1024*1024))
-		if err != nil {
-			return "", "", err
-		}
-
-		newDev, _ := ns.spdkclient.FindVhostDevice(bdevName)
-		if newDev == "" {
-			newDev, err = ns.spdkclient.CreateVhostDevice("ctrlr-"+uuid.New().String(), bdevName)
-			if err != nil {
-				return "", "", err
-			}
-		}
-
-		ephemeralVolume := volumeContext[pkg.Ephemeral] == "true"
-		if ephemeralVolume {
-			if err := ns.ephemeralVolumeStore.AddVolume(volumeID, bdevName); err != nil {
-				log.Error("fail to add volume: ", err.Error())
-				if err := ns.spdkclient.CleanBdev(bdevName); err != nil {
-					log.Error("createVolume - CleanBdev failed")
-				}
-				return "", "", err
-			}
-		}
-
-		log.Infof("createVolume: Volume: %s, VG: %s, Size: %d, lvName: %s, dev: %s", volumeID, vgName, pvSize, lvName, newDev)
-		return newDev, bdevName, nil
-	} else {
-		if err := ns.createLvm(vgName, volumeID, lvmType, unit, pvSize); err != nil {
-			return "", "", err
-		}
-	}
-	return "", "", nil
+	return ns.createLvm(vgName, volumeID, lvmType, unit, pvSize)
 }
 
 func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize int64) error {
@@ -471,7 +426,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 			return fmt.Errorf("createVolume:: VG is exist: %s, bug get pv number as 0", vgName)
 		}
 		cmd := fmt.Sprintf("%s lvcreate -i %d -n %s -L %d%s %s", localtype.NsenterCmd, pvNumber, volumeID, pvSize, unit, vgName)
-		_, err := ns.osTool.RunCommand(cmd)
+		_, err := ns.osTool.RunShellCommand(cmd)
 		if err != nil {
 			log.Errorf("createVolume:: lvcreate command %s error: %v", cmd, err)
 			return err
@@ -479,7 +434,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 		log.Infof("Successful Create Striping LVM volume: %s, with command: %s", volumeID, cmd)
 	} else if lvmType == LinearType {
 		cmd := fmt.Sprintf("%s lvcreate -n %s -L %d%s -Wy -y %s", localtype.NsenterCmd, volumeID, pvSize, unit, vgName)
-		_, err := ns.osTool.RunCommand(cmd)
+		_, err := ns.osTool.RunShellCommand(cmd)
 		if err != nil {
 			log.Errorf("createVolume:: lvcreate linear command %s error: %v", cmd, err)
 			return err
@@ -491,7 +446,7 @@ func (ns *nodeServer) createLvm(vgName, volumeID, lvmType, unit string, pvSize i
 
 func (ns *nodeServer) removeLVMByDevicePath(devicePath string) error {
 	cmd := fmt.Sprintf("%s lvremove -v -f %s", localtype.NsenterCmd, devicePath)
-	_, err := ns.osTool.RunCommand(cmd)
+	_, err := ns.osTool.RunShellCommand(cmd)
 	if err != nil {
 		log.Errorf("removeLVMByDevicePath:: lvremove command %s error: %v", cmd, err)
 		return err
@@ -546,7 +501,7 @@ func checkIfRestored(path string) bool {
 }
 
 func labelRestored(path string) error {
-	if err := ioutil.WriteFile(filepath.Join(path, RestoreFileName), nil, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(path, RestoreFileName), nil, 0644); err != nil {
 		return fmt.Errorf("error writing restored file: %s", err.Error())
 	}
 

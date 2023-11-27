@@ -19,7 +19,13 @@ package provisioner
 
 import (
 	"context"
+	"math"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"text/template"
 	"time"
 
 	errors "github.com/pkg/errors"
@@ -66,6 +72,15 @@ type HelperPodOptions struct {
 	selectedNodeTaints []corev1.Taint
 
 	imagePullSecrets []corev1.LocalObjectReference
+
+	// softLimitGrace is the soft limit of quota on the project
+	softLimitGrace string
+
+	// hardLimitGrace is the hard limit of quota on the project
+	hardLimitGrace string
+
+	// pvcStorage is the storage requested for pv
+	pvcStorage int64
 }
 
 // validate checks that the required fields to launch
@@ -80,6 +95,47 @@ func (pOpts *HelperPodOptions) validate() error {
 		return errors.Errorf("invalid empty name or hostpath or hostname or service account name, %+v", pOpts)
 	}
 	return nil
+}
+
+// converToK converts the limits to kilobytes
+func convertToK(limit string, pvcStorage int64) (string, error) {
+
+	if len(limit) == 0 {
+		return "0k", nil
+	}
+
+	valueRegex := regexp.MustCompile(`[\d]*[\.]?[\d]*`)
+	valueString := valueRegex.FindString(limit)
+
+	if limit != valueString+"%" {
+		return "", errors.Errorf("invalid format for limit grace")
+	}
+
+	value, err := strconv.ParseFloat(valueString, 64)
+
+	if err != nil {
+		return "", errors.Errorf("invalid format, cannot parse")
+	}
+	if value > 100 {
+		value = 100
+	}
+
+	value *= float64(pvcStorage)
+	value /= 100
+	value += float64(pvcStorage)
+	value /= 1024
+
+	value = math.Ceil(value)
+	valueString = strconv.FormatFloat(value, 'f', -1, 64)
+	valueString += "k"
+	return valueString, nil
+}
+
+func notReservedVolumeDir() hostpath.Predicate {
+	return func(hp hostpath.HostPath) bool {
+		// @lockfileNameforProjectID is reserved name.
+		return path.Base(string(hp)) != lockfileForProjectID
+	}
 }
 
 // createInitPod launches a helper(busybox) pod, to create the host path.
@@ -100,6 +156,7 @@ func (p *Provisioner) createInitPod(ctx context.Context, pOpts *HelperPodOptions
 	var vErr error
 	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
 	if vErr != nil {
 		return vErr
@@ -108,7 +165,7 @@ func (p *Provisioner) createInitPod(ctx context.Context, pOpts *HelperPodOptions
 	//Pass on the taints, to create tolerations.
 	config.taints = pOpts.selectedNodeTaints
 
-	config.pOpts.cmdsForPath = append(config.pOpts.cmdsForPath, filepath.Join("/data/", config.volumeDir))
+	config.pOpts.cmdsForPath = []string{"mkdir", "-m", "0777", "-p", filepath.Join("/data/", config.volumeDir)}
 
 	iPod, err := p.launchPod(ctx, config)
 	if err != nil {
@@ -142,6 +199,7 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 	var vErr error
 	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
 		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
 		ExtractSubPath()
 	if vErr != nil {
 		return vErr
@@ -149,7 +207,7 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 
 	config.taints = pOpts.selectedNodeTaints
 
-	config.pOpts.cmdsForPath = append(config.pOpts.cmdsForPath, filepath.Join("/data/", config.volumeDir))
+	config.pOpts.cmdsForPath = []string{"rm", "-rf", filepath.Join("/data/", config.volumeDir)}
 
 	cPod, err := p.launchPod(ctx, config)
 	if err != nil {
@@ -160,6 +218,126 @@ func (p *Provisioner) createCleanupPod(ctx context.Context, pOpts *HelperPodOpti
 		return err
 	}
 	return nil
+}
+
+// validateLimits check that the limits to setup qouta are valid
+func (pOpts *HelperPodOptions) validateLimits() error {
+	if pOpts.softLimitGrace == "0k" &&
+		pOpts.hardLimitGrace == "0k" {
+		// Hack: using convertToK() style conversion
+		// TODO: Refactor this section of the code
+		pvcStorageInK := math.Ceil(float64(pOpts.pvcStorage) / 1024)
+		pvcStorageInKString := strconv.FormatFloat(pvcStorageInK, 'f', -1, 64) + "k"
+		pOpts.softLimitGrace, pOpts.hardLimitGrace = pvcStorageInKString, pvcStorageInKString
+		return nil
+	}
+
+	if pOpts.softLimitGrace == "0k" ||
+		pOpts.hardLimitGrace == "0k" {
+		return nil
+	}
+
+	if len(pOpts.softLimitGrace) > len(pOpts.hardLimitGrace) ||
+		(len(pOpts.softLimitGrace) == len(pOpts.hardLimitGrace) &&
+			pOpts.softLimitGrace > pOpts.hardLimitGrace) {
+		return errors.Errorf("hard limit cannot be smaller than soft limit")
+	}
+
+	return nil
+}
+
+// createQuotaPod launches a helper(busybox) pod, to apply the quota.
+//
+//	The local pv expect the hostpath to be already present before mounting
+//	into pod. Validate that the local pv host path is not created under root.
+func (p *Provisioner) createQuotaPod(ctx context.Context, pOpts *HelperPodOptions) error {
+	var config podConfig
+	config.pOpts, config.podName = pOpts, "quota"
+	// err := pOpts.validate()
+	if err := pOpts.validate(); err != nil {
+		return err
+	}
+
+	// Initialize HostPath builder and validate that
+	// volume directory is not directly under root.
+	// Extract the base path and the volume unique path.
+	var vErr error
+	config.parentDir, config.volumeDir, vErr = hostpath.NewBuilder().WithPath(pOpts.path).
+		WithCheckf(hostpath.IsNonRoot(), "volume directory {%v} should not be under root directory", pOpts.path).
+		WithCheckf(notReservedVolumeDir(), "volume directory '%s' is a reserved name", config.volumeDir).
+		ExtractSubPath()
+	if vErr != nil {
+		return vErr
+	}
+
+	// Pass on the taints, to create tolerations.
+	config.taints = pOpts.selectedNodeTaints
+
+	var lErr error
+	config.pOpts.softLimitGrace, lErr = convertToK(config.pOpts.softLimitGrace, config.pOpts.pvcStorage)
+	if lErr != nil {
+		return lErr
+	}
+	config.pOpts.hardLimitGrace, lErr = convertToK(config.pOpts.hardLimitGrace, config.pOpts.pvcStorage)
+	if lErr != nil {
+		return lErr
+	}
+
+	if err := pOpts.validateLimits(); err != nil {
+		return err
+	}
+
+	cmd := `
+        # fs stores the file system of mount
+        FS=$(stat -f -c %T /data)
+        set -x
+        # check if fs is xfs or ext4 (output of stat is ext2/ext3)
+        # PID is the last project Id in the directory
+        # xfs_quota project(xfs) or chattr +P (ext4) initializes project with new project id
+        # xfs_quota limit(xfs) or repquota (ext4) sets the quota according to limits defined
+        if [[ "$FS" == "xfs" ]]; then
+            PID=$(xfs_quota -x -c 'report -h' /data | tail -2 | awk 'NR==1{print substr ($1,2)}+0')
+            PID=$(expr $PID + 1)
+            xfs_quota -x -c 'project -s -p  {{ .ProjectPath }}' $PID /data
+            xfs_quota -x -c 'limit -p bsoft={{ .SoftLimitGrace }} bhard={{ .HardLimitGrace }}' $PID /data
+        elif [[ "$FS" == "ext2/ext3" ]]; then
+            PID=$(repquota -P /data | tail -3 | awk 'NR==1{print substr ($1,2)}+0')
+            PID=$(expr $PID + 1)
+            chattr +P -p $PID {{ .ProjectPath }}
+            setquota -P $PID {{ .UpperSoftLimitGrace }} {{ .UpperHardLimitGrace }} 0 0 /data
+        else
+            rm -rf {{ .ProjectPath }}
+            exit 1
+        fi
+    `
+	tmpl, err := template.New("").Parse(cmd)
+	if err != nil {
+		return err
+	}
+	var strBuilder strings.Builder
+	if err = tmpl.Execute(&strBuilder, struct {
+		ProjectPath                         string
+		SoftLimitGrace, UpperSoftLimitGrace string
+		HardLimitGrace, UpperHardLimitGrace string
+	}{
+		ProjectPath:         filepath.Join("/data/", config.volumeDir),
+		SoftLimitGrace:      config.pOpts.softLimitGrace,
+		UpperSoftLimitGrace: strings.ToUpper(config.pOpts.softLimitGrace),
+		HardLimitGrace:      config.pOpts.hardLimitGrace,
+		UpperHardLimitGrace: strings.ToUpper(config.pOpts.hardLimitGrace),
+	}); err != nil {
+		return err
+	}
+	lockfile := filepath.Join("/data/", lockfileForProjectID)
+	cmd = strBuilder.String()
+	klog.Infof("Quota commands: %s", cmd)
+	config.pOpts.cmdsForPath = []string{"flock", "-w", "30", "-x", lockfile, "-c", cmd}
+
+	qPod, err := p.launchPod(ctx, config)
+	if err != nil {
+		return err
+	}
+	return p.exitPod(ctx, qPod)
 }
 
 func (p *Provisioner) launchPod(ctx context.Context, config podConfig) (*corev1.Pod, error) {
@@ -249,6 +427,9 @@ func (p *Provisioner) exitPod(ctx context.Context, hPod *corev1.Pod) error {
 		} else if checkPod.Status.Phase == corev1.PodSucceeded {
 			completed = true
 			break
+		} else if checkPod.Status.Phase == corev1.PodFailed {
+			return errors.Errorf("helper pod is failed, reason: %s, message: %s",
+				checkPod.Status.Reason, checkPod.Status.Message)
 		}
 		time.Sleep(1 * time.Second)
 	}

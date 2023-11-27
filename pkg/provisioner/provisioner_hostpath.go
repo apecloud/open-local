@@ -67,9 +67,7 @@ func (p *Provisioner) ProvisionHostPath(ctx context.Context, opts pvController.P
 	klog.Infof("Creating volume %v at node with labels {%v}, path:%v,ImagePullSecrets:%v", name, nodeAffinityLabels, path, imagePullSecrets)
 
 	//Before using the path for local PV, make sure it is created.
-	initCmdsForPath := []string{"mkdir", "-m", "0777", "-p"}
 	podOpts := &HelperPodOptions{
-		cmdsForPath:        initCmdsForPath,
 		name:               name,
 		path:               path,
 		nodeAffinityLabels: nodeAffinityLabels,
@@ -83,7 +81,51 @@ func (p *Provisioner) ProvisionHostPath(ctx context.Context, opts pvController.P
 		return nil, pvController.ProvisioningFinished, iErr
 	}
 
-	// TODO(x.zhou): set the usage quota
+	if volumeConfig.IsXfsQuotaEnabled() {
+		softLimitGrace := volumeConfig.getDataField(KeyXFSQuota, KeyQuotaSoftLimit)
+		hardLimitGrace := volumeConfig.getDataField(KeyXFSQuota, KeyQuotaHardLimit)
+		pvcStorage := opts.PVC.Spec.Resources.Requests.Storage().Value()
+
+		podOpts := &HelperPodOptions{
+			name:               name,
+			path:               path,
+			nodeAffinityLabels: nodeAffinityLabels,
+			serviceAccountName: saName,
+			selectedNodeTaints: taints,
+			imagePullSecrets:   imagePullSecrets,
+			softLimitGrace:     softLimitGrace,
+			hardLimitGrace:     hardLimitGrace,
+			pvcStorage:         pvcStorage,
+		}
+		iErr := p.createQuotaPod(ctx, podOpts)
+		if iErr != nil {
+			klog.Infof("Applying quota failed: %v", iErr)
+			return nil, pvController.ProvisioningFinished, iErr
+		}
+	}
+
+	if volumeConfig.IsExt4QuotaEnabled() {
+		softLimitGrace := volumeConfig.getDataField(KeyEXT4Quota, KeyQuotaSoftLimit)
+		hardLimitGrace := volumeConfig.getDataField(KeyEXT4Quota, KeyQuotaHardLimit)
+		pvcStorage := opts.PVC.Spec.Resources.Requests.Storage().Value()
+
+		podOpts := &HelperPodOptions{
+			name:               name,
+			path:               path,
+			nodeAffinityLabels: nodeAffinityLabels,
+			serviceAccountName: saName,
+			selectedNodeTaints: taints,
+			imagePullSecrets:   imagePullSecrets,
+			softLimitGrace:     softLimitGrace,
+			hardLimitGrace:     hardLimitGrace,
+			pvcStorage:         pvcStorage,
+		}
+		iErr := p.createQuotaPod(ctx, podOpts)
+		if iErr != nil {
+			klog.Infof("Applying quota failed: %v", iErr)
+			return nil, pvController.ProvisioningFinished, iErr
+		}
+	}
 
 	// VolumeMode will always be specified as Filesystem for host path volume,
 	// and the value passed in from the PVC spec will be ignored.
@@ -188,9 +230,7 @@ func (p *Provisioner) DeleteHostPath(ctx context.Context, pv *corev1.PersistentV
 
 	//Initiate clean up only when reclaim policy is not retain.
 	klog.Infof("Deleting volume %v at %v:%v", pv.Name, GetNodeHostname(nodeObject), path)
-	cleanupCmdsForPath := []string{"rm", "-rf"}
 	podOpts := &HelperPodOptions{
-		cmdsForPath:        cleanupCmdsForPath,
 		name:               pv.Name,
 		path:               path,
 		nodeAffinityLabels: nodeAffinityLabels,

@@ -33,7 +33,6 @@ English | [简体中文](./README_zh_CN.md)
 | IO-Throttling                       | v0.4.0+            | 1.20-1.22   |
 | CSI ephemeral volumes               | v0.5.0+            | 1.20-1.22   |
 | IPv6 Support                        | v0.5.3+            | 1.20-1.22   |
-| SPDK host device                    | v0.6.0+            | 1.20-1.22   |
 | Read-write snapshot                 | v0.7.0+            | 1.20-1.22   |
 
 ## Overall Architecture

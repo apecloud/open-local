@@ -15,7 +15,7 @@ GOPROXY?=https://proxy.golang.org,direct
 MAIN_FILE=./cmd/main.go
 LD_FLAGS=-ldflags "-X '${GO_PACKAGE}/pkg/version.GitCommit=$(GIT_COMMIT)' -X '${GO_PACKAGE}/pkg/version.Version=$(VERSION)' -X 'main.VERSION=$(VERSION)' -X 'main.COMMITID=$(GIT_COMMIT)'"
 GIT_COMMIT=$(shell git rev-parse HEAD)
-VERSION=v0.7.3
+VERSION ?= v0.7.3
 
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 CRD_VERSION=v1alpha1
@@ -69,7 +69,7 @@ image-tools:
 # generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
 	./hack/update-codegen.sh
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role crd paths="./pkg/apis/storage/$(CRD_VERSION)/..." output:crd:artifacts:config=helm/crds/
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role crd paths="./pkg/apis/storage/$(CRD_VERSION)/..." output:crd:artifacts:config=deploy/helm/crds/
 
 .PHONY: fmt
 fmt:
@@ -81,9 +81,54 @@ vet:
 # find or download controller-gen
 # download controller-gen if necessary
 controller-gen:
-ifeq (, $(shell which controller-gen))
-	go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.5.0
-CONTROLLER_GEN=$(shell go env GOPATH)/bin/controller-gen
-else
-CONTROLLER_GEN=$(shell which controller-gen)
+ifeq (, $(wildcard bin/controller-gen))
+	GOBIN=$(shell pwd)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.5.0
 endif
+CONTROLLER_GEN=$(shell pwd)/bin/controller-gen
+
+.PHONY: protobuf
+protobuf: protoc protoc-gen-go
+	cd pkg/csi/lib && PATH="$(shell pwd)/bin:$$PATH" $(PROTOC) \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		lvm.proto
+
+protoc:
+ifeq (, $(shell which protoc))
+	$(error "$@ is not found, please install it first.")
+else
+PROTOC=$(shell which protoc)
+endif
+
+protoc-gen-go:
+ifeq (, $(wildcard bin/protoc-gen-go))
+	GOBIN=$(shell pwd)/bin go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.31.0
+endif
+ifeq (, $(wildcard bin/protoc-gen-go-grpc))
+	GOBIN=$(shell pwd)/bin go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
+endif
+
+##@ Helm Chart Tasks
+
+GOOS ?= $(shell $(GO_CMD) env GOOS)
+
+bump-single-chart-appver.%: chart=$*
+bump-single-chart-appver.%:
+ifeq ($(GOOS), darwin)
+	sed -i '' "s/^appVersion:.*/appVersion: $(VERSION)/" deploy/$(chart)/Chart.yaml
+else
+	sed -i "s/^appVersion:.*/appVersion: $(VERSION)/" deploy/$(chart)/Chart.yaml
+endif
+
+bump-single-chart-ver.%: chart=$*
+bump-single-chart-ver.%:
+ifeq ($(GOOS), darwin)
+	sed -i '' "s/^version:.*/version: $(VERSION)/" deploy/$(chart)/Chart.yaml
+else
+	sed -i "s/^version:.*/version: $(VERSION)/" deploy/$(chart)/Chart.yaml
+endif
+
+.PHONY: bump-chart-ver
+bump-chart-ver: \
+	bump-single-chart-ver.helm \
+	bump-single-chart-appver.helm

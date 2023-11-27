@@ -17,10 +17,8 @@ limitations under the License.
 package server
 
 import (
-	"context"
 	"fmt"
 	"net"
-	"os"
 	"time"
 
 	"github.com/alibaba/open-local/pkg/csi/lib"
@@ -36,8 +34,6 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/test/bufconn"
 	corev1 "k8s.io/api/core/v1"
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -175,21 +171,5 @@ func GetLvmdPort() string {
 }
 
 func newCmd(clientset *clientset.Clientset) (LvmCmd, error) {
-	nodeName := os.Getenv("KUBE_NODE_NAME")
-
-	if nls, err := clientset.CsiV1alpha1().NodeLocalStorages().Get(context.Background(), nodeName, metav1.GetOptions{}); err != nil {
-		if k8serr.IsNotFound(err) {
-			log.Infof("node local storage %s not found, waiting for the controller to create the resource", nodeName)
-		} else {
-			log.Errorf("get NodeLocalStorages failed: %s", err.Error())
-		}
-
-		return nil, err
-	} else {
-		if nls.Spec.SpdkConfig.DeviceType != "" {
-			return NewSpdkCommands(nls.Spec.SpdkConfig.RpcSocket), nil
-		} else {
-			return &LvmCommads{}, nil
-		}
-	}
+	return &LvmCommads{}, nil
 }

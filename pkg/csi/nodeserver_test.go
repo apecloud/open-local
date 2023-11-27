@@ -23,7 +23,6 @@ import (
 
 	"github.com/alibaba/open-local/pkg"
 	fakelocalclientset "github.com/alibaba/open-local/pkg/generated/clientset/versioned/fake"
-	spdk "github.com/alibaba/open-local/pkg/utils/spdk"
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	fakesnapclientset "github.com/kubernetes-csi/external-snapshotter/client/v4/clientset/versioned/fake"
 	"golang.org/x/net/context"
@@ -41,8 +40,6 @@ func Test_nodeServer_NodePublishVolume(t *testing.T) {
 	type fields struct {
 		ephemeralVolumeStore Store
 		inFlight             *InFlight
-		spdkSupported        bool
-		spdkclient           *spdk.SpdkClient
 		osTool               OSTool
 		options              *driverOptions
 	}
@@ -154,8 +151,6 @@ func Test_nodeServer_NodePublishVolume(t *testing.T) {
 	testfields := fields{
 		ephemeralVolumeStore: NewMockVolumeStore(""),
 		inFlight:             NewInFlight(),
-		spdkSupported:        false,
-		spdkclient:           nil,
 		osTool:               NewFakeOSTool(),
 		options: &driverOptions{
 			kubeclient:  fakeKubeClient,
@@ -448,8 +443,6 @@ func Test_nodeServer_NodePublishVolume(t *testing.T) {
 				k8smounter:           NewFakeSafeMounter(tt.scripts...),
 				ephemeralVolumeStore: tt.fields.ephemeralVolumeStore,
 				inFlight:             tt.fields.inFlight,
-				spdkSupported:        tt.fields.spdkSupported,
-				spdkclient:           tt.fields.spdkclient,
 				osTool:               tt.fields.osTool,
 				options:              tt.fields.options,
 			}
@@ -469,8 +462,6 @@ func Test_nodeServer_NodeUnpublishVolume(t *testing.T) {
 	type fields struct {
 		ephemeralVolumeStore Store
 		inFlight             *InFlight
-		spdkSupported        bool
-		spdkclient           *spdk.SpdkClient
 		osTool               OSTool
 		options              *driverOptions
 	}
@@ -572,8 +563,6 @@ func Test_nodeServer_NodeUnpublishVolume(t *testing.T) {
 	testfields := fields{
 		ephemeralVolumeStore: NewMockVolumeStore(""),
 		inFlight:             NewInFlight(),
-		spdkSupported:        false,
-		spdkclient:           nil,
 		osTool:               NewFakeOSTool(),
 		options: &driverOptions{
 			kubeclient:  fakeKubeClient,
@@ -651,8 +640,6 @@ func Test_nodeServer_NodeUnpublishVolume(t *testing.T) {
 				k8smounter:           NewFakeSafeMounter(tt.scripts...),
 				ephemeralVolumeStore: tt.fields.ephemeralVolumeStore,
 				inFlight:             tt.fields.inFlight,
-				spdkSupported:        tt.fields.spdkSupported,
-				spdkclient:           tt.fields.spdkclient,
 				osTool:               tt.fields.osTool,
 				options:              tt.fields.options,
 			}
@@ -673,8 +660,6 @@ func Test_nodeServer_NodeExpandVolume(t *testing.T) {
 		k8smounter           *mountutils.SafeFormatAndMount
 		ephemeralVolumeStore Store
 		inFlight             *InFlight
-		spdkSupported        bool
-		spdkclient           *spdk.SpdkClient
 		osTool               OSTool
 		options              *driverOptions
 	}
@@ -776,8 +761,6 @@ func Test_nodeServer_NodeExpandVolume(t *testing.T) {
 	testfields := fields{
 		ephemeralVolumeStore: NewMockVolumeStore(""),
 		inFlight:             NewInFlight(),
-		spdkSupported:        false,
-		spdkclient:           nil,
 		osTool:               NewFakeOSTool(),
 		options: &driverOptions{
 			kubeclient:  fakeKubeClient,
@@ -838,8 +821,6 @@ func Test_nodeServer_NodeExpandVolume(t *testing.T) {
 				k8smounter:           tt.fields.k8smounter,
 				ephemeralVolumeStore: tt.fields.ephemeralVolumeStore,
 				inFlight:             tt.fields.inFlight,
-				spdkSupported:        tt.fields.spdkSupported,
-				spdkclient:           tt.fields.spdkclient,
 				osTool:               tt.fields.osTool,
 				options:              tt.fields.options,
 			}

@@ -13,7 +13,8 @@ type OSTool interface {
 	Remove(name string) error
 	Stat(name string) (os.FileInfo, error)
 	MkdirAll(path string, perm os.FileMode) error
-	RunCommand(cmd string) (string, error)
+	RunShellCommand(cmd string) (string, error)
+	RunCommand(name string, args []string) (string, error)
 	IsBlockDevice(fullPath string) (bool, error)
 	MountBlock(source, target string, opts ...string) error
 	EnsureBlock(target string) error
@@ -43,8 +44,12 @@ func (tool *osTool) IsBlockDevice(fullPath string) (bool, error) {
 	return utils.IsBlockDevice(fullPath)
 }
 
-func (tool *osTool) RunCommand(cmd string) (string, error) {
+func (tool *osTool) RunShellCommand(cmd string) (string, error) {
 	return utils.Run(cmd)
+}
+
+func (tool *osTool) RunCommand(name string, args []string) (string, error) {
+	return utils.RunCmd(name, args)
 }
 
 func (tool *osTool) MountBlock(source, target string, opts ...string) error {
@@ -85,7 +90,11 @@ func (tool *fakeOSTool) MkdirAll(path string, perm os.FileMode) error {
 	return nil
 }
 
-func (tool *fakeOSTool) RunCommand(cmd string) (string, error) {
+func (tool *fakeOSTool) RunShellCommand(cmd string) (string, error) {
+	return "", nil
+}
+
+func (tool *fakeOSTool) RunCommand(name string, args []string) (string, error) {
 	return "", nil
 }
 

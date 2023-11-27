@@ -109,6 +109,8 @@ spec:
           value: "true"
         - name: ISSUE_MESSAGE_FILE
           value: "true"
+        - name: HOSTPATH_BASE_PATH
+          value: /mnt/{{ .Values.name }}
 {{- if .Values.global.YodaSchedulerSvcIP }}
         - name: EXTENDER_SVC_IP
           value: "{{ .Values.global.YodaSchedulerSvcIP }}"
