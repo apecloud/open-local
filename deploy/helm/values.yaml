@@ -6,7 +6,7 @@ customLabels: {}
 images:
   local:
     image: apecloud/open-local
-    tag: v0.7.4
+    tag:
   registrar:
     image: ecp_builder/csi-node-driver-registrar
     tag: v2.3.0
