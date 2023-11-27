@@ -5,8 +5,9 @@
 *.so
 *.dylib
 bin/
-.vscode
 *.bz2
+*.tar
+*.tgz
 
 # Test binary, built with `go test -c`
 *.test
@@ -19,10 +20,9 @@ covprofile
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-*.tar
-
 # IDE excludes
 .vscode/
 .idea/
 
-*.tgz
+# Misc
+skaffold.yaml

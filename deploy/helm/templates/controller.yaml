@@ -111,11 +111,7 @@ spec:
           value: "true"
         - name: HOSTPATH_BASE_PATH
           value: /mnt/{{ .Values.name }}
-{{- if .Values.global.YodaSchedulerSvcIP }}
-        - name: EXTENDER_SVC_IP
-          value: "{{ .Values.global.YodaSchedulerSvcIP }}"
-{{- end }}
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.controllerImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         resources:
           limits:
@@ -133,7 +129,7 @@ spec:
         - controller
         - --initconfig={{ .Values.name }}
         - --feature-gates=UpdateNLS={{ .Values.controller.update_nls }}
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.controllerImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         resources:
           limits:
