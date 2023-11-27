@@ -55,7 +55,7 @@ spec:
           capabilities:
             add: ["SYS_ADMIN"]
           allowPrivilegeEscalation: true
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.agentImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         resources:
           limits:
@@ -108,7 +108,7 @@ spec:
           capabilities:
             add: ["SYS_ADMIN"]
           allowPrivilegeEscalation: true
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.agentImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         args:
         - csi
@@ -141,10 +141,6 @@ spec:
           value: "true"
         - name: HOSTPATH_BASE_PATH
           value: /mnt/{{ .Values.name }}
-{{- if .Values.global.YodaSchedulerSvcIP }}
-        - name: EXTENDER_SVC_IP
-          value: "{{ .Values.global.YodaSchedulerSvcIP }}"
-{{- end }}
         resources:
           limits:
             cpu: 2

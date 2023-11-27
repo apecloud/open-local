@@ -14,6 +14,7 @@ BUILDX_BUILDER=$(NAME)-builder
 GOPROXY?=https://proxy.golang.org,direct
 MAIN_FILE=./cmd/main.go
 LD_FLAGS=-ldflags "-X '${GO_PACKAGE}/pkg/version.GitCommit=$(GIT_COMMIT)' -X '${GO_PACKAGE}/pkg/version.Version=$(VERSION)' -X 'main.VERSION=$(VERSION)' -X 'main.COMMITID=$(GIT_COMMIT)'"
+GC_FLAGS=-gcflags "${SKAFFOLD_GO_GCFLAGS}"
 GIT_COMMIT=$(shell git rev-parse HEAD)
 VERSION ?= v0.7.4
 
@@ -31,14 +32,15 @@ test:
 .PHONY: build
 build:
 	mkdir -p $(OUTPUT_DIR)
-	CGO_ENABLED=0 $(GO_BUILD) $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(NAME) $(MAIN_FILE)
+	CGO_ENABLED=0 $(GO_BUILD) $(LD_FLAGS) $(GC_FLAGS) -v -o $(OUTPUT_DIR)/$(NAME) $(MAIN_FILE)
 
 .PHONY: develop
 develop:
-	GOARCH=amd64 GOOS=linux CGO_ENABLED=0 $(GO_BUILD) $(LD_FLAGS) -v -o $(OUTPUT_DIR)/$(NAME) $(MAIN_FILE)
-	chmod +x $(OUTPUT_DIR)/$(NAME)
-	docker build . -t ${IMAGE_NAME_FOR_DOCKERHUB}:${VERSION} -f ./Dockerfile.dev
-	docker tag ${IMAGE_NAME_FOR_DOCKERHUB}:${VERSION} ${IMAGE_NAME_FOR_ACR}:${VERSION}
+	docker build . -t ${IMAGE_NAME_FOR_DOCKERHUB}:${VERSION} \
+		--build-arg TARGETOS=$${TARGETOS:-linux} \
+		--build-arg TARGETARCH=$${TARGETARCH:-arm64} \
+		--build-arg GOPROXY=$(GOPROXY) \
+		${DOCKER_BUILD_EXTRA_ARGS}
 
 .PHONY: install-docker-buildx
 install-docker-buildx: ## Create `docker buildx` builder.
@@ -55,7 +57,6 @@ image: install-docker-buildx
 	docker buildx build ./ --builder $(BUILDX_BUILDER) $(BUILDX_OUTPUT) \
 	    --platform linux/amd64,linux/arm64 --build-arg GOPROXY=$(GOPROXY) \
 	    --file ./Dockerfile --tag ${IMAGE_NAME_FOR_DOCKERHUB}:${VERSION}
-	#docker tag ${IMAGE_NAME_FOR_DOCKERHUB}:${VERSION} ${IMAGE_NAME_FOR_ACR}:${VERSION}
 
 .PHONY: push-image
 push-image: BUILDX_OUTPUT=--output=type=registry

@@ -21,7 +21,7 @@ spec:
         args:
         - provisioner
         - --name={{ .Values.driver }}/hostpath
-        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.image }}:{{ .Values.images.local.tag }}
+        image: {{ .Values.global.DockerRegistryURL }}/{{ .Values.images.local.provisionerImage | default .Values.images.local.image }}:{{ .Values.images.local.tag | default .Chart.AppVersion }}
         imagePullPolicy: {{ .Values.global.ImagePullPolicy }}
         resources:
           limits:

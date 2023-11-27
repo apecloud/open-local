@@ -6,7 +6,7 @@ customLabels: {}
 images:
   local:
     image: apecloud/open-local
-    tag:
+    # will follow .Chart.AppVersion if the tag field is empty
   registrar:
     image: ecp_builder/csi-node-driver-registrar
     tag: v2.3.0
