@@ -167,7 +167,7 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 		maj := stat.Rdev / 256
 		min := stat.Rdev % 256
-		if err := ns.setIOThrottling(ctx, req, maj, min); err != nil {
+		if err := ns.setIOThrottling(ctx, req, uint64(maj), uint64(min)); err != nil {
 			return nil, err
 		}
 	case string(pkg.VolumeTypeMountPoint):
