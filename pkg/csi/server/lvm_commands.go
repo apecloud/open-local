@@ -654,3 +654,12 @@ func (lvm *LvmCommads) RemoveProjQuotaSubpath(ctx context.Context, quotaSubpath 
 	}
 	return out, nil
 }
+
+// Execute command
+func (lvm *LvmCommads) DoCommand(ctx context.Context, commands []string) (string, error) {
+	if len(commands) == 0 {
+		return "", errors.New("empty command")
+	}
+	log.Infof("Receive commands from remote: %v", commands)
+	return utils.RunCmd(commands[0], commands[1:])
+}

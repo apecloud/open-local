@@ -43,6 +43,8 @@ const (
 
 	// internal tags, the prefix is added to avoid conflicts with other public tags
 	volumeContextTag = "_apecloud_volume_context"
+
+	lockTimeout = "30" // seconds
 )
 
 // hostPathCsImpl implements the csi.ControllerServer interface for hostPath volume type
@@ -139,10 +141,41 @@ func (cs *hostPathCsImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolum
 	reqCtx := getValue(ctx, ctxKeyDeleteVolume)
 	volumeID := reqCtx.pv.Name
 	parameters := reqCtx.pv.Spec.CSI.VolumeAttributes
-	_, hostVolumePath, err := getVerifiedHostPath(volumeID, parameters)
+	hostPath, hostVolumePath, err := getVerifiedHostPath(volumeID, parameters)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: getVerifiedHostPath error: %s", err.Error())
 	}
+
+	cmd := `
+set -ex
+# fs stores the file system of mount
+FS=$(stat -f -c %T "{{ .BasePath }}")
+# check if fs is xfs
+if [[ "$FS" == "xfs" ]]; then
+  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft=0 bhard=0 {{ .ProjectPath }}" "{{ .BasePath }}"
+fi
+rm -rf {{ .ProjectPath }} || true
+	`
+	tmpl, err := template.New("").Parse(cmd)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to parse template, err: %v", err)
+	}
+	var strBuilder strings.Builder
+	if err = tmpl.Execute(&strBuilder, struct {
+		BasePath         string
+		ProjectPath      string
+		XFSProjectIDFile string
+		XFSProjectsFile  string
+	}{
+		BasePath:         hostPath,
+		ProjectPath:      hostVolumePath,
+		XFSProjectIDFile: getXFSProjectidFilePath(hostPath),
+		XFSProjectsFile:  getXFSProjectsFilePath(hostPath),
+	}); err != nil {
+		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to render template, err: %v", err)
+	}
+	cmd = strBuilder.String()
+	log.Infof("DeleteVolume: execute command: %s", cmd)
 	nodeName := reqCtx.nodeName
 
 	conn, err := cs.common.getNodeConn(nodeName)
@@ -150,8 +183,14 @@ func (cs *hostPathCsImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolum
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to connect to node %s: %s", nodeName, err.Error())
 	}
 	defer conn.Close()
-	if err := conn.CleanPath(ctx, hostVolumePath, true); err != nil {
-		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to delete hostVolumePath %s: %s", hostVolumePath, err.Error())
+
+	cmds := []string{"flock", "-w", lockTimeout, "-x", getLockfilePath(hostPath), "-c", cmd}
+
+	out, err := conn.DoCommand(ctx, cmds)
+	if err != nil {
+		err = status.Errorf(codes.Internal, "DeleteVolume: fail to execute commands, output: %s, err: %v", out, err)
+		log.Error(err)
+		return nil, err
 	}
 	log.Infof("DeleteVolume: delete HostPath volume(%s) successfully", volumeID)
 	return &csi.DeleteVolumeResponse{}, nil
@@ -252,6 +291,67 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
+func (ns *hostPathNsImpl) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	reqCtx := getValue(ctx, ctxKeyExpandVolume)
+	volumeID := reqCtx.pv.Name
+	parameters := reqCtx.pv.Spec.CSI.VolumeAttributes
+	hostPath, hostVolumePath, err := getVerifiedHostPath(volumeID, parameters)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: %v", err)
+	}
+	cmd := `
+set -ex
+# fs stores the file system of mount
+FS=$(stat -f -c %T "{{ .BasePath }}")
+# check if fs is xfs or ext4 (output of stat is ext2/ext3)
+if [[ "$FS" == "xfs" ]]; then
+  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} {{ .ProjectPath }}" "{{ .BasePath }}"
+elif [[ "$FS" == "ext2/ext3" ]]; then
+  PID=$(lsattr -p /data -d | awk '{print $1}')
+  setquota -P $PID {{ .UpperSoftLimit }} {{ .UpperHardLimit }} 0 0 "{{ .BasePath }}"
+fi
+	`
+	tmpl, err := template.New("").Parse(cmd)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: failed to parse template, err: %v", err)
+	}
+	capacityBytes := (req.CapacityRange.RequiredBytes + 1023) / 1024
+	limit := fmt.Sprintf("%dk", capacityBytes)
+	var strBuilder strings.Builder
+	if err = tmpl.Execute(&strBuilder, struct {
+		BasePath                  string
+		ProjectPath               string
+		XFSProjectIDFile          string
+		XFSProjectsFile           string
+		SoftLimit, UpperSoftLimit string
+		HardLimit, UpperHardLimit string
+	}{
+		BasePath:         hostPath,
+		ProjectPath:      hostVolumePath,
+		XFSProjectIDFile: getXFSProjectidFilePath(hostPath),
+		XFSProjectsFile:  getXFSProjectsFilePath(hostPath),
+		SoftLimit:        limit,
+		HardLimit:        limit,
+		UpperSoftLimit:   strings.ToUpper(limit),
+		UpperHardLimit:   strings.ToUpper(limit),
+	}); err != nil {
+		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: failed to render template, err: %v", err)
+	}
+
+	cmd = strBuilder.String()
+	log.Infof("NodeExpandVolume: execute command: %s", cmd)
+	out, err := ns.common.osTool.RunCommand("flock", []string{
+		"-w", lockTimeout, "-x", getLockfilePath(hostPath), "-c", cmd,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: excute command failed, err=%v, output=%v", err, out)
+	}
+	log.Infof("NodeExpandVolume success")
+	return &csi.NodeExpandVolumeResponse{
+		CapacityBytes: capacityBytes,
+	}, nil
+}
+
 func (ns *hostPathNsImpl) mountHostPathVolume(ctx context.Context, req *csi.NodePublishVolumeRequest, hostPath string) error {
 	sourcePath := hostPath
 	targetPath := req.TargetPath
@@ -300,8 +400,10 @@ FS=$(stat -f -c %T "{{ .BasePath }}")
 if [[ "$FS" == "xfs" ]]; then
   PID=$(xfs_quota -x -c 'report -h' "{{ .BasePath }}" | tail -2 | awk 'NR==1{print substr ($1,2)}+0')
   PID=$(expr $PID + 1)
-  xfs_quota -x -c 'project -s -p  {{ .ProjectPath }}' $PID "{{ .BasePath }}"
-  xfs_quota -x -c 'limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }}' $PID "{{ .BasePath }}"
+  echo $PID:{{ .ProjectPath }} >> {{ .XFSProjectsFile }}
+  echo {{ .ProjectPath }}:$PID >> {{ .XFSProjectIDFile }}
+  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "project -s {{ .ProjectPath }}" "{{ .BasePath }}"
+  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} {{ .ProjectPath }}" "{{ .BasePath }}"
 elif [[ "$FS" == "ext2/ext3" ]]; then
   PID=$(repquota -P "{{ .BasePath }}" | tail -3 | awk 'NR==1{print substr ($1,2)}+0')
   PID=$(expr $PID + 1)
@@ -319,31 +421,30 @@ fi
 	if err = tmpl.Execute(&strBuilder, struct {
 		BasePath                  string
 		ProjectPath               string
+		XFSProjectIDFile          string
+		XFSProjectsFile           string
 		SoftLimit, UpperSoftLimit string
 		HardLimit, UpperHardLimit string
 	}{
-		BasePath:       basePath,
-		ProjectPath:    volumeHostPath,
-		SoftLimit:      limit,
-		HardLimit:      limit,
-		UpperSoftLimit: strings.ToUpper(limit),
-		UpperHardLimit: strings.ToUpper(limit),
+		BasePath:         basePath,
+		ProjectPath:      volumeHostPath,
+		XFSProjectIDFile: getXFSProjectidFilePath(basePath),
+		XFSProjectsFile:  getXFSProjectsFilePath(basePath),
+		SoftLimit:        limit,
+		HardLimit:        limit,
+		UpperSoftLimit:   strings.ToUpper(limit),
+		UpperHardLimit:   strings.ToUpper(limit),
 	}); err != nil {
 		return fmt.Errorf("failed to render template, err: %w", err)
 	}
 
-	const (
-		lockTimeout  = "30" // seconds
-		lockFileName = "setquota.lock"
-	)
-	lockfile := filepath.Join(basePath, lockFileName)
 	out, err := ns.common.osTool.RunCommand("flock", []string{
-		"-w", lockTimeout, "-x", lockfile, "-c", strBuilder.String(),
+		"-w", lockTimeout, "-x", getLockfilePath(basePath), "-c", strBuilder.String(),
 	})
 	if err != nil {
 		err = fmt.Errorf("setProjectQuota failed, error: %w, output: %s", err, out)
+		log.Errorf("setProjectQuota failed, err: %v, output: %s", err)
 	}
-	log.Infof("setProjectQuota: cmd output: %s, err: %v", out, err)
 	return err
 }
 
@@ -358,4 +459,16 @@ func getVerifiedHostPath(volumeID string, params map[string]string) (string, str
 		}
 	}
 	return hostPath, filepath.Join(hostPath, volumeID), nil
+}
+
+func getLockfilePath(basepath string) string {
+	return filepath.Join(basepath, "setquota.lock")
+}
+
+func getXFSProjectsFilePath(basepath string) string {
+	return filepath.Join(basepath, "xfs_projects")
+}
+
+func getXFSProjectidFilePath(basepath string) string {
+	return filepath.Join(basepath, "xfs_projectid")
 }

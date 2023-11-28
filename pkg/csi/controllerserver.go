@@ -696,8 +696,6 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get volumeType: %s", err.Error())
 	}
 	if volumeType == string(pkg.VolumeTypeHostPath) {
-		// TODO: expand the project quota
-		log.Infof("we are hostpath pv, fake to expand %s successfully", volumeID)
 		return &csi.ControllerExpandVolumeResponse{CapacityBytes: volSizeBytes, NodeExpansionRequired: true}, nil
 	}
 

@@ -33,6 +33,7 @@ const (
 	LVM_RemoveVG_FullMethodName       = "/proto.LVM/RemoveVG"
 	LVM_CleanPath_FullMethodName      = "/proto.LVM/CleanPath"
 	LVM_CleanDevice_FullMethodName    = "/proto.LVM/CleanDevice"
+	LVM_DoCommand_FullMethodName      = "/proto.LVM/DoCommand"
 )
 
 // LVMClient is the client API for LVM service.
@@ -53,6 +54,7 @@ type LVMClient interface {
 	RemoveVG(ctx context.Context, in *CreateVGRequest, opts ...grpc.CallOption) (*RemoveVGReply, error)
 	CleanPath(ctx context.Context, in *CleanPathRequest, opts ...grpc.CallOption) (*CleanPathReply, error)
 	CleanDevice(ctx context.Context, in *CleanDeviceRequest, opts ...grpc.CallOption) (*CleanDeviceReply, error)
+	DoCommand(ctx context.Context, in *DoCommandRequest, opts ...grpc.CallOption) (*DoCommandReply, error)
 }
 
 type lVMClient struct {
@@ -189,6 +191,15 @@ func (c *lVMClient) CleanDevice(ctx context.Context, in *CleanDeviceRequest, opt
 	return out, nil
 }
 
+func (c *lVMClient) DoCommand(ctx context.Context, in *DoCommandRequest, opts ...grpc.CallOption) (*DoCommandReply, error) {
+	out := new(DoCommandReply)
+	err := c.cc.Invoke(ctx, LVM_DoCommand_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LVMServer is the server API for LVM service.
 // All implementations must embed UnimplementedLVMServer
 // for forward compatibility
@@ -207,6 +218,7 @@ type LVMServer interface {
 	RemoveVG(context.Context, *CreateVGRequest) (*RemoveVGReply, error)
 	CleanPath(context.Context, *CleanPathRequest) (*CleanPathReply, error)
 	CleanDevice(context.Context, *CleanDeviceRequest) (*CleanDeviceReply, error)
+	DoCommand(context.Context, *DoCommandRequest) (*DoCommandReply, error)
 	mustEmbedUnimplementedLVMServer()
 }
 
@@ -255,6 +267,9 @@ func (UnimplementedLVMServer) CleanPath(context.Context, *CleanPathRequest) (*Cl
 }
 func (UnimplementedLVMServer) CleanDevice(context.Context, *CleanDeviceRequest) (*CleanDeviceReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CleanDevice not implemented")
+}
+func (UnimplementedLVMServer) DoCommand(context.Context, *DoCommandRequest) (*DoCommandReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DoCommand not implemented")
 }
 func (UnimplementedLVMServer) mustEmbedUnimplementedLVMServer() {}
 
@@ -521,6 +536,24 @@ func _LVM_CleanDevice_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LVM_DoCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DoCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LVMServer).DoCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LVM_DoCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LVMServer).DoCommand(ctx, req.(*DoCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LVM_ServiceDesc is the grpc.ServiceDesc for LVM service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -583,6 +616,10 @@ var LVM_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CleanDevice",
 			Handler:    _LVM_CleanDevice_Handler,
+		},
+		{
+			MethodName: "DoCommand",
+			Handler:    _LVM_DoCommand_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
