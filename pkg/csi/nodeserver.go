@@ -439,6 +439,9 @@ func (ns *nodeServer) resizeVolume(ctx context.Context, volumeID, targetPath str
 	}
 
 	switch volumeType {
+	case string(pkg.VolumeTypeHostPath):
+		log.Infof("NodeExpandVolume:: fake to expand hostpath successful volumeId: %s", volumeID)
+		return nil
 	case string(pkg.VolumeTypeLVM):
 		// Get lvm info
 		vgName := utils.GetVGNameFromCsiPV(pv)

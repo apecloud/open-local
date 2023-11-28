@@ -661,12 +661,29 @@ func (cs *controllerServer) DeleteSnapshot(ctx context.Context, req *csi.DeleteS
 	return &csi.DeleteSnapshotResponse{}, nil
 }
 
+func getVolumeType(pv *v1.PersistentVolume) (volumeType string, err error) {
+	// Get volumeType
+	volumeType = string(pkg.VolumeTypeUnknown)
+	if pv != nil && pv.Spec.CSI != nil {
+		if value, ok := pv.Spec.CSI.VolumeAttributes["volumeType"]; ok {
+			volumeType = value
+		}
+	} else {
+		return volumeType, status.Errorf(codes.Internal, "local volume get pv %s volume type error", pv.Name)
+	}
+
+	return volumeType, err
+}
+
 // ControllerExpandVolume expand volume
 func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
 	log.V(4).Infof("ControllerExpandVolume: called with args %+v", *req)
 
-	// Step 1: get vgName
 	volumeID := req.GetVolumeId()
+	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+
+	// Step 1: get vgName
+	//volumeID := req.GetVolumeId()
 	pv, err := cs.pvLister.Get(volumeID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get pv: %s", err.Error())
@@ -674,13 +691,23 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get node name of pv %s: %s", pv.Name, err.Error())
 	}
+
+	volumeType, err := getVolumeType(pv)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get volumeType: %s", err.Error())
+	}
+	if volumeType == string(pkg.VolumeTypeHostPath) {
+		log.Infof("assume we are hostpath pv, fake to expand %s successfully", volumeID)
+		return &csi.ControllerExpandVolumeResponse{CapacityBytes: volSizeBytes, NodeExpansionRequired: true}, nil
+	}
+
 	vgName := utils.GetVGNameFromCsiPV(pv)
 	if vgName == "" {
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get vgName of pv %s", pv.Name)
 	}
 
 	// Step 2: check whether the volume can be expanded
-	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
+	// volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
 	// Step 3: get grpc client
 	nodeName := utils.GetNodeNameFromCsiPV(pv)
