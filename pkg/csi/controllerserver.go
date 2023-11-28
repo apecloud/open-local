@@ -665,7 +665,7 @@ func getVolumeType(pv *v1.PersistentVolume) (volumeType string, err error) {
 	// Get volumeType
 	volumeType = string(pkg.VolumeTypeUnknown)
 	if pv != nil && pv.Spec.CSI != nil {
-		if value, ok := pv.Spec.CSI.VolumeAttributes["volumeType"]; ok {
+		if value, ok := pv.Spec.CSI.VolumeAttributes[VolumeTypeTag]; ok {
 			volumeType = value
 		}
 	} else {
