@@ -110,8 +110,7 @@ parameters:
   hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
-# TODO(x.zhou): allow volume expansion
-allowVolumeExpansion: false
+allowVolumeExpansion: true
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -126,8 +125,7 @@ parameters:
   enforceCapacityLimit: "true"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
-# TODO(x.zhou): allow volume expansion
-allowVolumeExpansion: false
+allowVolumeExpansion: true
 ---
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
