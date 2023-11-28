@@ -147,13 +147,6 @@ spec:
           value: "true"
         - name: HOSTPATH_BASE_PATH
           value: /mnt/{{ .Values.name }}
-<<<<<<< HEAD
-=======
-{{- if .Values.global.YodaSchedulerSvcIP }}
-        - name: EXTENDER_SVC_IP
-          value: "{{ .Values.global.YodaSchedulerSvcIP }}"
-{{- end }}
->>>>>>> f9fc252 (feat: reimplement hostpath local PV with CSI)
         resources:
           limits:
             cpu: 2
