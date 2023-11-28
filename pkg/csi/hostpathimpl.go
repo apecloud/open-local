@@ -63,8 +63,6 @@ type volumeContext struct {
 	EnforceCapacityLimit     bool
 	VolumeBps                uint64
 	VolumeIops               uint64
-	MajorNumberOfDevice      uint32
-	MinorNumberOfDevice      uint32
 	EnableIOThrottling       bool
 }
 
@@ -81,8 +79,6 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 		volumeCapacity           int64
 		enforceCapacityLimit     bool
 		volumeBps, volumeIops    uint64
-		majorNumberOfDevice      uint64
-		minorNumberOfDevice      uint64
 		enableIOThrottling       bool
 	)
 
@@ -105,34 +101,7 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: invalid io throttling parameters: %v", err)
 	}
 
-	if enableIOThrottling {
-		// find major and minor device type of the basepath
-		cmd := fmt.Sprintf("findmnt --target %s -o MAJ:MIN -r -n", hostPath)
-		output, err := cs.common.osTool.RunShellCommand(cmd)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "CreateVolume: exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
-		}
-		// check if it is a real block device
-		majMin := strings.TrimSpace(output)
-		_, err = cs.common.osTool.Stat(fmt.Sprintf("%s/dev/block/%s", cs.common.options.sysPath, majMin))
-		if os.IsNotExist(err) {
-			return nil, status.Errorf(codes.Internal, "CreateVolume: the underlay device type for '%s' is %s, but it's not a real block device", hostPath, majMin)
-		}
-		parts := strings.Split(majMin, ":")
-		if len(parts) != 2 {
-			return nil, status.Errorf(codes.Internal, "CreateVolume: invalid output of cmd '%s': %s", cmd, majMin)
-		}
-		var err1, err2 error
-		majorNumberOfDevice, err1 = strconv.ParseUint(parts[0], 10, 64)
-		minorNumberOfDevice, err2 = strconv.ParseUint(parts[1], 10, 64)
-		if err1 != nil || err2 != nil {
-			return nil, status.Errorf(codes.Internal, "CreateVolume: invalid output of cmd '%s': %s, err1: %v, err2: %v",
-				cmd, output, err1, err2)
-		}
-	}
-
-	// TODO(gufeijun): if io quota is enabled, check if the filesystem of basepath supports quota.
-	// TODO(gufeijun): interact with the scheduler to see if there is sufficient space to allocate
+	// TODO(x.zhou): interact with the scheduler to see if there is sufficient space to allocate
 
 	vc := &volumeContext{
 		HostPath:             hostPath,
@@ -142,8 +111,6 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 		EnforceCapacityLimit: enforceCapacityLimit,
 		VolumeBps:            volumeBps,
 		VolumeIops:           volumeIops,
-		MajorNumberOfDevice:  uint32(majorNumberOfDevice),
-		MinorNumberOfDevice:  uint32(minorNumberOfDevice),
 		EnableIOThrottling:   enableIOThrottling,
 	}
 
@@ -152,13 +119,13 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 		return nil, status.Errorf(codes.Internal, "CreateVolume: failed to marshal volume context: %v", err)
 	}
 
+	parameters[volumeContextTag] = string(ctxStr)
+
 	response := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
 			CapacityBytes: volumeCapacity,
-			VolumeContext: map[string]string{
-				volumeContextTag: string(ctxStr),
-			},
+			VolumeContext: parameters,
 			AccessibleTopology: []*csi.Topology{{
 				Segments: map[string]string{
 					pkg.KubernetesNodeIdentityKey: nodeName,
@@ -238,6 +205,32 @@ type hostPathNsImpl struct {
 	common *nodeServer
 }
 
+func (ns *hostPathNsImpl) getMajorAndMinorNumberOfHostPath(hostPath string) (uint32, uint32, error) {
+	// find major and minor device type of the hostPath
+	cmd := fmt.Sprintf("findmnt --target %s -o MAJ:MIN -r -n", hostPath)
+	output, err := ns.common.osTool.RunShellCommand(cmd)
+	if err != nil {
+		return 0, 0, fmt.Errorf("exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
+	}
+	// check if it is a real block device
+	majMin := strings.TrimSpace(output)
+	_, err = ns.common.osTool.Stat(fmt.Sprintf("%s/dev/block/%s", ns.common.options.sysPath, majMin))
+	if os.IsNotExist(err) {
+		return 0, 0, fmt.Errorf("the underlay device type for '%s' is %s, but it's not a real block device", hostPath, majMin)
+	}
+	parts := strings.Split(majMin, ":")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid output of cmd '%s': %s", cmd, majMin)
+	}
+	majorNumberOfDevice, err1 := strconv.ParseUint(parts[0], 10, 64)
+	minorNumberOfDevice, err2 := strconv.ParseUint(parts[1], 10, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, fmt.Errorf("invalid output of cmd '%s': %s, err1: %v, err2: %v",
+			cmd, output, err1, err2)
+	}
+	return uint32(majorNumberOfDevice), uint32(minorNumberOfDevice), nil
+}
+
 func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (resp *csi.NodePublishVolumeResponse, err error) {
 	volumeID := req.GetVolumeId()
 	targetPath := req.GetTargetPath()
@@ -250,6 +243,17 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	if err := json.Unmarshal([]byte(vcStr), vc); err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: fail to unmarshal volume context: %v", err)
 	}
+
+	var majorNumberOfDevice, minorNumberOfDevice uint32
+
+	if vc.EnableIOThrottling {
+		majorNumberOfDevice, minorNumberOfDevice, err = ns.getMajorAndMinorNumberOfHostPath(vc.HostPath)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "NodePublishVolume: hostpath seems not to be backed by a block device: %v", err)
+		}
+	}
+
+	// TODO(gufeijun): if io quota is enabled, check if the filesystem of basepath supports quota.
 
 	// create volume directory on the host
 	if err := ns.common.osTool.MkdirAll(vc.HostVolumePath, 0777); err != nil {
@@ -272,7 +276,7 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 
 	// set IO throttling
 	if vc.EnableIOThrottling {
-		err = ns.common.setIOThrottling(ctx, req, vc.VolumeBps, vc.VolumeIops, vc.MajorNumberOfDevice, vc.MinorNumberOfDevice)
+		err = ns.common.setIOThrottling(ctx, req, vc.VolumeBps, vc.VolumeIops, majorNumberOfDevice, minorNumberOfDevice)
 		if err != nil {
 			log.Errorf("NodePublishVolume: failed to set IO throttling, err: %s", err)
 			return nil, status.Errorf(codes.Internal,
