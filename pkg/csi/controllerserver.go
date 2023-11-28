@@ -683,7 +683,6 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
 	// Step 1: get vgName
-	//volumeID := req.GetVolumeId()
 	pv, err := cs.pvLister.Get(volumeID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get pv: %s", err.Error())
@@ -697,7 +696,8 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 		return nil, status.Errorf(codes.Internal, "ControllerExpandVolume: fail to get volumeType: %s", err.Error())
 	}
 	if volumeType == string(pkg.VolumeTypeHostPath) {
-		log.Infof("assume we are hostpath pv, fake to expand %s successfully", volumeID)
+		// TODO: expand the project quota
+		log.Infof("we are hostpath pv, fake to expand %s successfully", volumeID)
 		return &csi.ControllerExpandVolumeResponse{CapacityBytes: volSizeBytes, NodeExpansionRequired: true}, nil
 	}
 
@@ -707,7 +707,6 @@ func (cs *controllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 	}
 
 	// Step 2: check whether the volume can be expanded
-	// volSizeBytes := int64(req.GetCapacityRange().GetRequiredBytes())
 
 	// Step 3: get grpc client
 	nodeName := utils.GetNodeNameFromCsiPV(pv)
