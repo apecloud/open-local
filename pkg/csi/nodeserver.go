@@ -167,9 +167,16 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 		}
 		maj := stat.Rdev / 256
 		min := stat.Rdev % 256
-		if err := ns.setIOThrottling(ctx, req, uint64(maj), uint64(min)); err != nil {
-			return nil, err
+		containsValue, bps, iops, err := requireThrottleIO(req.VolumeContext)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "NodePublishVolume: fail to get io throttling info from parameters, error: %s", err.Error())
 		}
+		if containsValue {
+			if err := ns.setIOThrottling(ctx, req, bps, iops, uint32(maj), uint32(min)); err != nil {
+				return nil, err
+			}
+		}
+
 	case string(pkg.VolumeTypeMountPoint):
 		err := ns.mountMountPointVolume(ctx, req)
 		if err != nil {
@@ -541,19 +548,8 @@ func (ns *nodeServer) detectCgroupDriver() utils.CgroupDriverType {
 	return cgroupDriver
 }
 
-func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishVolumeRequest, maj, min uint64) (err error) {
+func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishVolumeRequest, bps, iops uint64, maj, min uint32) (err error) {
 	volumeID := req.VolumeId
-
-	containsValue, bps, iops, err := requireThrottleIO(req.VolumeContext)
-
-	if err != nil {
-		log.Errorf("invalid bps or iops parameter in storage class: %s", err)
-		return err
-	}
-	if !containsValue {
-		log.Infof("no need to set throttle for volume %s", volumeID)
-		return nil
-	}
 
 	// get pod
 	podUID := req.VolumeContext[pkg.PodUID]

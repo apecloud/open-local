@@ -50,6 +50,7 @@ type controllerServer struct {
 	pvcPodSchedulerMap *PvcPodSchedulerMap
 	schedulerArchMap   *SchedulerArchMap
 	adapter            adapter.Adapter
+	osTool             OSTool
 
 	nodeLister corelisters.NodeLister
 	podLister  corelisters.PodLister
@@ -107,6 +108,7 @@ func newControllerServer(options *driverOptions) *controllerServer {
 		pvLister:           kubeInformerFactory.Core().V1().PersistentVolumes().Lister(),
 		pvcPodSchedulerMap: pvcPodSchedulerMap,
 		schedulerArchMap:   newSchedulerArchMap(options.extenderSchedulerNames, options.frameworkSchedulerNames),
+		osTool:             NewOSTool(),
 		adapter:            adapter.NewExtenderAdapter(),
 		options:            options,
 	}

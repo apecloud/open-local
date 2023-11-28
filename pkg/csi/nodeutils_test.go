@@ -28,8 +28,8 @@ func Test_requireThrottleIO(t *testing.T) {
 		name          string
 		args          args
 		wantR         bool
-		wantBpsValue  int64
-		wantIopsValue int64
+		wantBpsValue  uint64
+		wantIopsValue uint64
 		wantErr       bool
 	}{
 		{name: "test empty throttle value",
@@ -49,6 +49,9 @@ func Test_requireThrottleIO(t *testing.T) {
 			wantR: true, wantBpsValue: 1048576, wantIopsValue: 110, wantErr: false},
 		{name: "test invalid bps throttle value",
 			args:  args{volumeContext: map[string]string{"bps": "abc"}},
+			wantR: false, wantBpsValue: 0, wantIopsValue: 0, wantErr: true},
+		{name: "test invalid zero throttle value",
+			args:  args{volumeContext: map[string]string{"bps": "0", "iops": "0"}},
 			wantR: false, wantBpsValue: 0, wantIopsValue: 0, wantErr: true},
 		{name: "test invalid iops throttle value",
 			args:  args{volumeContext: map[string]string{"bps": "10240", "iops": "11b"}},

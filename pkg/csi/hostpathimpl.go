@@ -17,6 +17,7 @@ limitations under the License.
 package csi
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ const (
 	enforceCapacityLimitScTag = "enforceCapacityLimit"
 
 	// internal tags, the prefix is added to avoid conflicts with other public tags
-	volumeCapacityTag = "_hp_volumeCapacity"
+	volumeContextTag = "_apecloud_volume_context"
 
 	lockTimeout = "30" // seconds
 )
@@ -55,34 +56,109 @@ type hostPathCsImpl struct {
 	common *controllerServer
 }
 
+type volumeContext struct {
+	HostPath, HostVolumePath string
+	NodeName                 string
+	VolumeCapacity           int64
+	EnforceCapacityLimit     bool
+	VolumeBps                uint64
+	VolumeIops               uint64
+	MajorNumberOfDevice      uint32
+	MinorNumberOfDevice      uint32
+	EnableIOThrottling       bool
+}
+
 func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if volumeSource := req.GetVolumeContentSource(); volumeSource != nil {
 		return nil, status.Error(codes.Unimplemented, "CreateVolume: volume content source is not supported")
 	}
-
-	reqCtx := getValue(ctx, ctxKeyCreateVolume)
-	nodeName := reqCtx.nodeName
-	volumeID := req.GetName()
 	parameters := req.GetParameters()
+	var err error
+	var (
+		volumeID                 string
+		hostPath, hostVolumePath string
+		nodeName                 string
+		volumeCapacity           int64
+		enforceCapacityLimit     bool
+		volumeBps, volumeIops    uint64
+		majorNumberOfDevice      uint64
+		minorNumberOfDevice      uint64
+		enableIOThrottling       bool
+	)
 
+	volumeID = req.GetName()
 	// verifying the hostPath parameter
-	_, _, err := getVerifiedHostPath(volumeID, parameters)
+	hostPath, hostVolumePath, err = getVerifiedHostPath(volumeID, parameters)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "CreateVolume: getVerifiedHostPath error: %s", err.Error())
 	}
+	nodeName = getValue(ctx, ctxKeyCreateVolume).nodeName
+	volumeCapacity = req.GetCapacityRange().GetRequiredBytes()
+	if val, ok := parameters[enforceCapacityLimitScTag]; ok {
+		enforceCapacityLimit, err = strconv.ParseBool(val)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: invalid tag in parameters %s: %s", enforceCapacityLimitScTag, val)
+		}
+	}
+	enableIOThrottling, volumeBps, volumeIops, err = requireThrottleIO(parameters)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: invalid io throttling parameters: %v", err)
+	}
 
-	// TODO(x.zhou): interact with the scheduler to see if there is sufficient space to allocate
+	if enableIOThrottling {
+		// find major and minor device type of the basepath
+		cmd := fmt.Sprintf("findmnt --target %s -o MAJ:MIN -r -n", hostPath)
+		output, err := cs.common.osTool.RunShellCommand(cmd)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "CreateVolume: exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
+		}
+		// check if it is a real block device
+		majMin := strings.TrimSpace(output)
+		_, err = cs.common.osTool.Stat(fmt.Sprintf("%s/dev/block/%s", cs.common.options.sysPath, majMin))
+		if os.IsNotExist(err) {
+			return nil, status.Errorf(codes.Internal, "CreateVolume: the underlay device type for '%s' is %s, but it's not a real block device", hostPath, majMin)
+		}
+		parts := strings.Split(majMin, ":")
+		if len(parts) != 2 {
+			return nil, status.Errorf(codes.Internal, "CreateVolume: invalid output of cmd '%s': %s", cmd, majMin)
+		}
+		var err1, err2 error
+		majorNumberOfDevice, err1 = strconv.ParseUint(parts[0], 10, 64)
+		minorNumberOfDevice, err2 = strconv.ParseUint(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			return nil, status.Errorf(codes.Internal, "CreateVolume: invalid output of cmd '%s': %s, err1: %v, err2: %v",
+				cmd, output, err1, err2)
+		}
+	}
 
-	// TODO(x.zhou): if io throttling is enabled, check if the basePath on the node is backed by a block device.
-	//               otherwise it will fail to set cgroups blkio in the NodePublishVolume().
+	// TODO(gufeijun): if io quota is enabled, check if the filesystem of basepath supports quota.
+	// TODO(gufeijun): interact with the scheduler to see if there is sufficient space to allocate
 
-	parameters[pkg.AnnoSelectedNode] = nodeName
-	parameters[volumeCapacityTag] = fmt.Sprintf("%d", req.GetCapacityRange().GetRequiredBytes())
+	vc := &volumeContext{
+		HostPath:             hostPath,
+		HostVolumePath:       hostVolumePath,
+		NodeName:             nodeName,
+		VolumeCapacity:       volumeCapacity,
+		EnforceCapacityLimit: enforceCapacityLimit,
+		VolumeBps:            volumeBps,
+		VolumeIops:           volumeIops,
+		MajorNumberOfDevice:  uint32(majorNumberOfDevice),
+		MinorNumberOfDevice:  uint32(minorNumberOfDevice),
+		EnableIOThrottling:   enableIOThrottling,
+	}
+
+	ctxStr, err := json.Marshal(vc)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "CreateVolume: failed to marshal volume context: %v", err)
+	}
+
 	response := &csi.CreateVolumeResponse{
 		Volume: &csi.Volume{
 			VolumeId:      volumeID,
-			CapacityBytes: req.GetCapacityRange().GetRequiredBytes(),
-			VolumeContext: parameters,
+			CapacityBytes: volumeCapacity,
+			VolumeContext: map[string]string{
+				volumeContextTag: string(ctxStr),
+			},
 			AccessibleTopology: []*csi.Topology{{
 				Segments: map[string]string{
 					pkg.KubernetesNodeIdentityKey: nodeName,
@@ -90,7 +166,7 @@ func (cs *hostPathCsImpl) CreateVolume(ctx context.Context, req *csi.CreateVolum
 			}},
 		},
 	}
-	log.Infof("CreateVolume: create volume %s(size: %d) successfully", volumeID, req.GetCapacityRange().GetRequiredBytes())
+	log.Infof("CreateVolume: create volume %s(size: %d) successfully", volumeID, volumeCapacity)
 	return response, nil
 }
 
@@ -166,47 +242,46 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 	volumeID := req.GetVolumeId()
 	targetPath := req.GetTargetPath()
 
-	basePath, volumeHostPath, err := getVerifiedHostPath(volumeID, req.VolumeContext)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "NodePublishVolume: getVerifiedHostPath error: %s", err.Error())
+	vcStr, ok := req.VolumeContext[volumeContextTag]
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "NodePublishVolume: can not find volume context")
+	}
+	vc := new(volumeContext)
+	if err := json.Unmarshal([]byte(vcStr), vc); err != nil {
+		return nil, status.Errorf(codes.Internal, "NodePublishVolume: fail to unmarshal volume context: %v", err)
 	}
 
 	// create volume directory on the host
-	if err := ns.common.osTool.MkdirAll(volumeHostPath, 0777); err != nil {
-		return nil, status.Errorf(codes.Internal, "NodePublishVolume: failed to create directory %s: %s", volumeHostPath, err.Error())
+	if err := ns.common.osTool.MkdirAll(vc.HostVolumePath, 0777); err != nil {
+		return nil, status.Errorf(codes.Internal, "NodePublishVolume: failed to create directory %s: %s", vc.HostVolumePath, err.Error())
 	}
 	defer func() {
 		// clean up volume directory when error
 		if err != nil {
-			_ = ns.common.osTool.Remove(volumeHostPath)
+			_ = ns.common.osTool.Remove(vc.HostVolumePath)
 		}
 	}()
 
 	// set project quota
-	var setQuotaErr error
-	tags := tags(req.VolumeContext)
-	capacity, err := tags.GetInt64(volumeCapacityTag)
-	if err != nil || capacity <= 0 {
-		setQuotaErr = fmt.Errorf("%s tag is not found or invalid, err: %v", volumeCapacityTag, err.Error())
-	} else {
-		setQuotaErr = ns.setProjectQuota(ctx, basePath, volumeHostPath, capacity)
-	}
-	enforceCapacityLimit, _ := tags.GetBool(enforceCapacityLimitScTag)
-	if enforceCapacityLimit && setQuotaErr != nil {
-		log.Errorf("NodePublishVolume: failed to set project quota, err: %s", setQuotaErr)
+	err = ns.setProjectQuota(ctx, vc.HostPath, vc.HostVolumePath, vc.VolumeCapacity)
+	if err != nil && vc.EnforceCapacityLimit {
+		log.Errorf("NodePublishVolume: failed to set project quota, err: %s", err)
 		return nil, status.Errorf(codes.Internal,
-			"NodePublishVolume: failed to set project quota, err: %v", setQuotaErr)
+			"NodePublishVolume: failed to set project quota, err: %v", err)
 	}
 
 	// set IO throttling
-	if err := ns.setIOThrottlingHostPath(ctx, req, basePath); err != nil {
-		log.Errorf("NodePublishVolume: failed to set IO throttling, err: %s", err)
-		return nil, status.Errorf(codes.Internal,
-			"NodePublishVolume: failed to set IO throttling, err: %s", err)
+	if vc.EnableIOThrottling {
+		err = ns.common.setIOThrottling(ctx, req, vc.VolumeBps, vc.VolumeIops, vc.MajorNumberOfDevice, vc.MinorNumberOfDevice)
+		if err != nil {
+			log.Errorf("NodePublishVolume: failed to set IO throttling, err: %s", err)
+			return nil, status.Errorf(codes.Internal,
+				"NodePublishVolume: failed to set IO throttling, err: %s", err)
+		}
 	}
 
 	// mount target path
-	if err := ns.mountHostPathVolume(ctx, req, volumeHostPath); err != nil {
+	if err := ns.mountHostPathVolume(ctx, req, vc.HostVolumePath); err != nil {
 		return nil, status.Errorf(codes.Internal, "NodePublishVolume: %s", err.Error())
 	}
 	log.Infof("NodePublishVolume: mount HostPath volume %s to %s successfully", volumeID, targetPath)
@@ -311,43 +386,6 @@ func (ns *hostPathNsImpl) mountHostPathVolume(ctx context.Context, req *csi.Node
 	return nil
 }
 
-func (ns *hostPathNsImpl) setIOThrottlingHostPath(ctx context.Context, req *csi.NodePublishVolumeRequest, basePath string) error {
-	volumeID := req.VolumeId
-	containsValue, _, _, err := requireThrottleIO(req.VolumeContext)
-	if err != nil {
-		return fmt.Errorf("invalid bps or iops parameter in storage class: %s", err)
-	}
-	if !containsValue {
-		log.Infof("no need to set throttle for volume %s", volumeID)
-		return nil
-	}
-	// find major and minor device type of the hostPath
-	cmd := fmt.Sprintf("findmnt --target %s -o MAJ:MIN -r -n", basePath)
-	output, err := ns.common.osTool.RunShellCommand(cmd)
-	if err != nil {
-		return fmt.Errorf("exec cmd '%s' failed: %s, output: %s", cmd, err.Error(), output)
-	}
-
-	// check if it is a real block device
-	majMin := strings.TrimSpace(output)
-	_, err = ns.common.osTool.Stat(fmt.Sprintf("%s/dev/block/%s", ns.common.options.sysPath, majMin))
-	if os.IsNotExist(err) {
-		return fmt.Errorf("the underlay device type for '%s' is %s, but it's not a real block device", basePath, majMin)
-	}
-
-	parts := strings.Split(majMin, ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid output of cmd '%s': %s", cmd, majMin)
-	}
-	major, err1 := strconv.ParseUint(parts[0], 10, 64)
-	minor, err2 := strconv.ParseUint(parts[1], 10, 64)
-	if err1 != nil || err2 != nil {
-		return fmt.Errorf("invalid output of cmd '%s': %s, err1: %v, err2: %v",
-			cmd, output, err1, err2)
-	}
-	return ns.common.setIOThrottling(ctx, req, major, minor)
-}
-
 func (ns *hostPathNsImpl) setProjectQuota(ctx context.Context, basePath string, volumeHostPath string, capacity int64) error {
 	if notMountPoint, err := ns.common.k8smounter.IsLikelyNotMountPoint(basePath); err != nil {
 		return fmt.Errorf("setProjectQuota: failed to check if basePath %s is mounted, err: %s", basePath, err.Error())
@@ -413,16 +451,16 @@ fi
 }
 
 func getVerifiedHostPath(volumeID string, params map[string]string) (string, string, error) {
-	basePath := params[hostPathScTag]
-	if basePath == "" {
+	hostPath := params[hostPathScTag]
+	if hostPath == "" {
 		return "", "", fmt.Errorf("missing %s tag", hostPathScTag)
 	}
-	if basePathPrefix := os.Getenv(hostPathBasePathEnv); basePathPrefix != "" {
-		if !strings.HasPrefix(basePath, basePathPrefix) {
-			return "", "", fmt.Errorf("invalid hostPath (%s), it should have prefix of '%s'", basePath, basePathPrefix)
+	if hostPathPrefix := os.Getenv(hostPathBasePathEnv); hostPathPrefix != "" {
+		if !strings.HasPrefix(hostPath, hostPathPrefix) {
+			return "", "", fmt.Errorf("invalid hostPath (%s), it should have prefix of '%s'", hostPath, hostPathPrefix)
 		}
 	}
-	return basePath, filepath.Join(basePath, volumeID), nil
+	return hostPath, filepath.Join(hostPath, volumeID), nil
 }
 
 func getLockfilePath(basepath string) string {
