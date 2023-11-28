@@ -198,8 +198,6 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	case string(pkg.VolumeTypeHostPath):
 		impl := &hostPathNsImpl{common: ns}
 		return impl.NodePublishVolume(ctx, req)
-	default:
-		return nil, status.Errorf(codes.Internal, "NodePublishVolume: unsupported volume %s with type %s", volumeID, volumeType)
 	}
 
 	log.Infof("NodePublishVolume: mount local volume %s to %s successfully", volumeID, targetPath)
