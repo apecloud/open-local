@@ -34,7 +34,7 @@ const (
 )
 
 type CgroupSetter interface {
-	SetBlkio(major uint64, minor uint64, iops uint64, bps uint64) error
+	SetBlkio(major uint32, minor uint32, iops uint64, bps uint64) error
 }
 
 func NewCgroupSetter(cgroupVersion string, path string) CgroupSetter {
@@ -54,7 +54,7 @@ func NewCgroupSetter(cgroupVersion string, path string) CgroupSetter {
 
 type unsupportedSetter struct{}
 
-func (c *unsupportedSetter) SetBlkio(major uint64, minor uint64, iops uint64, bps uint64) (err error) {
+func (c *unsupportedSetter) SetBlkio(major uint32, minor uint32, iops uint64, bps uint64) (err error) {
 	return fmt.Errorf("unsupported SetBlkio")
 }
 
@@ -62,7 +62,7 @@ type cgroupV1Setter struct {
 	path string
 }
 
-func (c *cgroupV1Setter) SetBlkio(major uint64, minor uint64, iops uint64, bps uint64) (err error) {
+func (c *cgroupV1Setter) SetBlkio(major uint32, minor uint32, iops uint64, bps uint64) (err error) {
 	defer func() {
 		if obj := recover(); obj != nil {
 			err = fmt.Errorf("%s", obj)
@@ -83,7 +83,7 @@ type cgroupV2Setter struct {
 	path string
 }
 
-func (c *cgroupV2Setter) SetBlkio(major uint64, minor uint64, iops uint64, bps uint64) (err error) {
+func (c *cgroupV2Setter) SetBlkio(major uint32, minor uint32, iops uint64, bps uint64) (err error) {
 	defer func() {
 		if obj := recover(); obj != nil {
 			err = fmt.Errorf("%s", obj)
