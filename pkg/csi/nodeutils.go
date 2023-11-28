@@ -1,6 +1,7 @@
 package csi
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -510,7 +511,7 @@ func labelRestored(path string) error {
 
 // requireThrottleIO returns true if any throttle value and related values
 // or else return false
-func requireThrottleIO(volumeContext map[string]string) (r bool, bpsValue int64, iopsValue int64, err error) {
+func requireThrottleIO(volumeContext map[string]string) (r bool, bpsValue uint64, iopsValue uint64, err error) {
 	bps, ok1 := volumeContext[localtype.VolumeBPS]
 	iops, ok2 := volumeContext[localtype.VolumeIOPS]
 	if !ok1 && !ok2 {
@@ -521,14 +522,22 @@ func requireThrottleIO(volumeContext map[string]string) (r bool, bpsValue int64,
 		if err != nil {
 			return false, 0, 0, err
 		}
-		bpsValue = bpsQuantity.Value()
+		bpsValue = uint64(bpsQuantity.Value())
+		if bpsValue == 0 {
+			return false, 0, 0, errors.New("volume bps can not be zero")
+		}
+		r = true
 	}
 	if ok2 {
-		iopstmp, err := strconv.ParseInt(iops, 10, 64)
+		iopstmp, err := strconv.ParseUint(iops, 10, 64)
 		if err != nil {
 			return false, 0, 0, err
 		}
 		iopsValue = iopstmp
+		if iopsValue == 0 {
+			return false, 0, 0, errors.New("volume iops can not be zero")
+		}
+		r = true
 	}
-	return true, bpsValue, iopsValue, nil
+	return r, bpsValue, iopsValue, nil
 }
