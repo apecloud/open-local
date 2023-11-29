@@ -290,6 +290,7 @@ func (ns *hostPathNsImpl) NodePublishVolume(ctx context.Context, req *csi.NodePu
 }
 
 func (ns *hostPathNsImpl) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+	enforceCapacityLimit := false
 	reqCtx := getValue(ctx, ctxKeyExpandVolume)
 	volumeID := reqCtx.pv.Name
 	parameters := reqCtx.pv.Spec.CSI.VolumeAttributes
@@ -297,6 +298,13 @@ func (ns *hostPathNsImpl) NodeExpandVolume(ctx context.Context, req *csi.NodeExp
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: %v", err)
 	}
+	if val, ok := parameters[enforceCapacityLimitScTag]; ok {
+		enforceCapacityLimit, err = strconv.ParseBool(val)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "CreateVolume: invalid tag in parameters %s: %s", enforceCapacityLimitScTag, val)
+		}
+	}
+
 	cmd := `
 set -ex
 # fs stores the file system of mount
@@ -338,7 +346,7 @@ fi
 	out, err := ns.common.osTool.RunCommand("flock", []string{
 		"-w", lockTimeout, "-x", getLockfilePath(hostPath), "-c", cmd,
 	})
-	if err != nil {
+	if err != nil && enforceCapacityLimit {
 		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: excute command failed, err=%v, output=%v", err, out)
 	}
 	log.Infof("NodeExpandVolume success")
