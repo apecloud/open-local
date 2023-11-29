@@ -152,7 +152,9 @@ set -ex
 FS=$(stat -f -c %T "{{ .BasePath }}")
 # check if fs is xfs
 if [[ "$FS" == "xfs" ]]; then
-  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft=0 bhard=0 {{ .ProjectPath }}" "{{ .BasePath }}"
+  PID=$(cat {{ .ProjectPath }}_PID)
+  xfs_quota -x -c "limit -p bsoft=0 bhard=0 $PID" "{{ .BasePath }}"
+  rm {{ .ProjectPath }}_PID
 fi
 rm -rf {{ .ProjectPath }} || true
 	`
@@ -162,15 +164,11 @@ rm -rf {{ .ProjectPath }} || true
 	}
 	var strBuilder strings.Builder
 	if err = tmpl.Execute(&strBuilder, struct {
-		BasePath         string
-		ProjectPath      string
-		XFSProjectIDFile string
-		XFSProjectsFile  string
+		BasePath    string
+		ProjectPath string
 	}{
-		BasePath:         hostPath,
-		ProjectPath:      hostVolumePath,
-		XFSProjectIDFile: getXFSProjectidFilePath(hostPath),
-		XFSProjectsFile:  getXFSProjectsFilePath(hostPath),
+		BasePath:    hostPath,
+		ProjectPath: hostVolumePath,
 	}); err != nil {
 		return nil, status.Errorf(codes.Internal, "DeleteVolume: failed to render template, err: %v", err)
 	}
@@ -305,7 +303,8 @@ set -ex
 FS=$(stat -f -c %T "{{ .BasePath }}")
 # check if fs is xfs or ext4 (output of stat is ext2/ext3)
 if [[ "$FS" == "xfs" ]]; then
-  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} {{ .ProjectPath }}" "{{ .BasePath }}"
+  PID=$(cat {{ .ProjectPath }}_PID)
+  xfs_quota -x -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} $PID" "{{ .BasePath }}"
 elif [[ "$FS" == "ext2/ext3" ]]; then
   PID=$(lsattr -p /data -d | awk '{print $1}')
   setquota -P $PID {{ .UpperSoftLimit }} {{ .UpperHardLimit }} 0 0 "{{ .BasePath }}"
@@ -321,19 +320,15 @@ fi
 	if err = tmpl.Execute(&strBuilder, struct {
 		BasePath                  string
 		ProjectPath               string
-		XFSProjectIDFile          string
-		XFSProjectsFile           string
 		SoftLimit, UpperSoftLimit string
 		HardLimit, UpperHardLimit string
 	}{
-		BasePath:         hostPath,
-		ProjectPath:      hostVolumePath,
-		XFSProjectIDFile: getXFSProjectidFilePath(hostPath),
-		XFSProjectsFile:  getXFSProjectsFilePath(hostPath),
-		SoftLimit:        limit,
-		HardLimit:        limit,
-		UpperSoftLimit:   strings.ToUpper(limit),
-		UpperHardLimit:   strings.ToUpper(limit),
+		BasePath:       hostPath,
+		ProjectPath:    hostVolumePath,
+		SoftLimit:      limit,
+		HardLimit:      limit,
+		UpperSoftLimit: strings.ToUpper(limit),
+		UpperHardLimit: strings.ToUpper(limit),
 	}); err != nil {
 		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: failed to render template, err: %v", err)
 	}
@@ -400,10 +395,10 @@ FS=$(stat -f -c %T "{{ .BasePath }}")
 if [[ "$FS" == "xfs" ]]; then
   PID=$(xfs_quota -x -c 'report -h' "{{ .BasePath }}" | tail -2 | awk 'NR==1{print substr ($1,2)}+0')
   PID=$(expr $PID + 1)
-  echo $PID:{{ .ProjectPath }} >> {{ .XFSProjectsFile }}
-  echo {{ .ProjectPath }}:$PID >> {{ .XFSProjectIDFile }}
-  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "project -s {{ .ProjectPath }}" "{{ .BasePath }}"
-  xfs_quota -x -D {{ .XFSProjectsFile }} -P {{ .XFSProjectIDFile }} -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} {{ .ProjectPath }}" "{{ .BasePath }}"
+  # save project id
+  echo $PID > {{ .ProjectPath }}_PID
+  xfs_quota -x -c "project -s -p  {{ .ProjectPath }} $PID" "{{ .BasePath }}"
+  xfs_quota -x -c "limit -p bsoft={{ .SoftLimit }} bhard={{ .HardLimit }} $PID" "{{ .BasePath }}"
 elif [[ "$FS" == "ext2/ext3" ]]; then
   PID=$(repquota -P "{{ .BasePath }}" | tail -3 | awk 'NR==1{print substr ($1,2)}+0')
   PID=$(expr $PID + 1)
@@ -421,19 +416,15 @@ fi
 	if err = tmpl.Execute(&strBuilder, struct {
 		BasePath                  string
 		ProjectPath               string
-		XFSProjectIDFile          string
-		XFSProjectsFile           string
 		SoftLimit, UpperSoftLimit string
 		HardLimit, UpperHardLimit string
 	}{
-		BasePath:         basePath,
-		ProjectPath:      volumeHostPath,
-		XFSProjectIDFile: getXFSProjectidFilePath(basePath),
-		XFSProjectsFile:  getXFSProjectsFilePath(basePath),
-		SoftLimit:        limit,
-		HardLimit:        limit,
-		UpperSoftLimit:   strings.ToUpper(limit),
-		UpperHardLimit:   strings.ToUpper(limit),
+		BasePath:       basePath,
+		ProjectPath:    volumeHostPath,
+		SoftLimit:      limit,
+		HardLimit:      limit,
+		UpperSoftLimit: strings.ToUpper(limit),
+		UpperHardLimit: strings.ToUpper(limit),
 	}); err != nil {
 		return fmt.Errorf("failed to render template, err: %w", err)
 	}
@@ -463,12 +454,4 @@ func getVerifiedHostPath(volumeID string, params map[string]string) (string, str
 
 func getLockfilePath(basepath string) string {
 	return filepath.Join(basepath, "setquota.lock")
-}
-
-func getXFSProjectsFilePath(basepath string) string {
-	return filepath.Join(basepath, "xfs_projects")
-}
-
-func getXFSProjectidFilePath(basepath string) string {
-	return filepath.Join(basepath, "xfs_projectid")
 }
