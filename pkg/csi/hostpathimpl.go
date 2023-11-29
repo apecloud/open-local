@@ -453,5 +453,5 @@ func getVerifiedHostPath(volumeID string, params map[string]string) (string, str
 }
 
 func getLockfilePath(basepath string) string {
-	return filepath.Join(basepath, "setquota.lock")
+	return filepath.Join(basepath, ".setquota.lock")
 }
