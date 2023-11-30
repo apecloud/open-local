@@ -110,7 +110,7 @@ FS=$(stat -f -c %T "{{ .BasePath }}")
 if [[ "$FS" == "xfs" ]]; then
   PID=$(cat {{ .ProjectIDFile }})
   xfs_quota -x -c "limit -p bsoft=0 bhard=0 $PID" "{{ .BasePath }}"
-  rm {{ .ProjectIDFile }}
+  rm {{ .ProjectIDFile }} || true
 fi
 	`
 	tmpl, err := template.New("").Parse(cmd)
