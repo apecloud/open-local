@@ -253,13 +253,8 @@ func (ns *nodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
 	if len(targetPath) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "NodeExpandVolume: Target path not provided")
 	}
-	expectSize := req.CapacityRange.RequiredBytes
-	if err := ns.resizeVolume(ctx, volumeID, targetPath); err != nil {
-		return nil, status.Errorf(codes.Internal, "NodeExpandVolume: Resize local volume %s with error: %s", volumeID, err.Error())
-	}
 
-	log.Infof("NodeExpandVolume: Successful expand local volume: %v to %d", req.VolumeId, expectSize)
-	return &csi.NodeExpandVolumeResponse{}, nil
+	return ns.resizeVolume(ctx, req, volumeID, targetPath)
 }
 
 func (ns *nodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
@@ -423,47 +418,49 @@ func (ns *nodeServer) publishDirectVolume(ctx context.Context, req *csi.NodePubl
 	return nil
 }
 
-func (ns *nodeServer) resizeVolume(ctx context.Context, volumeID, targetPath string) error {
+func (ns *nodeServer) resizeVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest, volumeID, targetPath string) (*csi.NodeExpandVolumeResponse, error) {
 	// Get volumeType
 	volumeType := string(pkg.VolumeTypeLVM)
 	_, _, pv, err := getPvInfo(ns.options.kubeclient, volumeID)
 	if err != nil {
-		return err
+		return nil, status.Errorf(codes.Internal, "ExpandVolume failed: %v", err)
 	}
 	if pv != nil && pv.Spec.CSI != nil {
 		if value, ok := pv.Spec.CSI.VolumeAttributes["volumeType"]; ok {
 			volumeType = value
 		}
 	} else {
-		return status.Errorf(codes.Internal, "resizeVolume: local volume get pv info error %s", volumeID)
+		return nil, status.Errorf(codes.Internal, "ExpandVolume: local volume get pv info error %s", volumeID)
 	}
 
 	switch volumeType {
-	case string(pkg.VolumeTypeHostPath):
-		log.Infof("NodeExpandVolume:: fake to expand hostpath successful volumeId: %s", volumeID)
-		return nil
 	case string(pkg.VolumeTypeLVM):
 		// Get lvm info
 		vgName := utils.GetVGNameFromCsiPV(pv)
 		if vgName == "" {
-			return status.Errorf(codes.Internal, "resizeVolume: Volume %s with vgname empty", pv.Name)
+			return nil, status.Errorf(codes.Internal, "ExpandVolume: Volume %s with vgname empty", pv.Name)
 		}
 
 		devicePath := filepath.Join("/dev", vgName, volumeID)
-
 		log.Infof("NodeExpandVolume:: volumeId: %s, devicePath: %s", volumeID, devicePath)
 
 		ok, err := ns.osTool.ResizeFS(devicePath, targetPath)
 		if err != nil {
-			return fmt.Errorf("NodeExpandVolume: Lvm Resize Error, volumeId: %s, devicePath: %s, volumePath: %s, err: %s", volumeID, devicePath, targetPath, err.Error())
+			return nil, status.Errorf(codes.Internal, "NodeExpandVolume: Lvm Resize Error, volumeId: %s, devicePath: %s, volumePath: %s, err: %s", volumeID, devicePath, targetPath, err.Error())
 		}
 		if !ok {
-			return status.Errorf(codes.Internal, "NodeExpandVolume:: Lvm Resize failed, volumeId: %s, devicePath: %s, volumePath: %s", volumeID, devicePath, targetPath)
+			return nil, status.Errorf(codes.Internal, "NodeExpandVolume:: Lvm Resize failed, volumeId: %s, devicePath: %s, volumePath: %s", volumeID, devicePath, targetPath)
 		}
 		log.Infof("NodeExpandVolume:: lvm resizefs successful volumeId: %s, devicePath: %s, volumePath: %s", volumeID, devicePath, targetPath)
-		return nil
+	case string(pkg.VolumeTypeHostPath):
+		reqCtx := &expandVolumeContext{
+			pv: pv,
+		}
+		ctx = ctxWithValue(ctx, ctxKeyExpandVolume, reqCtx)
+		impl := &hostPathNsImpl{common: ns}
+		return impl.NodeExpandVolume(ctx, req)
 	}
-	return nil
+	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
 func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishVolumeRequest) (err error) {

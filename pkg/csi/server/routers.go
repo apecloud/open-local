@@ -41,6 +41,7 @@ type LvmCmd interface {
 	RemoveVG(ctx context.Context, name string) (string, error)
 	CleanPath(ctx context.Context, path string, includeItself bool) error
 	CleanDevice(ctx context.Context, device string) (string, error)
+	DoCommand(ctx context.Context, commands []string) (string, error)
 }
 
 // Server lvm grpc server
@@ -215,4 +216,14 @@ func (s Server) RemoveTagLV(ctx context.Context, in *lib.RemoveTagLVRequest) (*l
 		return nil, status.Errorf(codes.Internal, "failed to remove tags from lv: %v", err)
 	}
 	return &lib.RemoveTagLVReply{CommandOutput: log}, nil
+}
+
+func (s Server) DoCommand(ctx context.Context, in *lib.DoCommandRequest) (*lib.DoCommandReply, error) {
+	outout, err := s.impl.DoCommand(ctx, in.Commands)
+	reply := new(lib.DoCommandReply)
+	reply.CommandOutput = outout
+	if err != nil {
+		reply.Error = err.Error()
+	}
+	return reply, nil
 }

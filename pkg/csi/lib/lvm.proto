@@ -248,6 +248,15 @@ message CleanDeviceReply {
   string command_output = 1;
 }
 
+message DoCommandRequest {
+  repeated string commands = 1;
+}
+
+message DoCommandReply {
+  string command_output = 1;
+  string error = 2;
+}
+
 service LVM {
   rpc ListLV(ListLVRequest) returns (ListLVReply) {}
   rpc CreateLV(CreateLVRequest) returns (CreateLVReply) {}
@@ -266,4 +275,6 @@ service LVM {
   rpc RemoveVG(CreateVGRequest) returns (RemoveVGReply) {}
   rpc CleanPath(CleanPathRequest) returns (CleanPathReply) {}
   rpc CleanDevice(CleanDeviceRequest) returns (CleanDeviceReply) {}
+
+  rpc DoCommand(DoCommandRequest) returns (DoCommandReply) {}
 }
