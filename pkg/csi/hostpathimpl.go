@@ -102,15 +102,16 @@ func (cs *hostPathCsImpl) DeleteVolume(ctx context.Context, req *csi.DeleteVolum
 
 	cmd := `
 set -ex
+trap 'rm -rf {{ .ProjectPath }}' EXIT
+
 # fs stores the file system of mount
 FS=$(stat -f -c %T "{{ .BasePath }}")
 # check if fs is xfs
 if [[ "$FS" == "xfs" ]]; then
   PID=$(cat {{ .ProjectIDFile }})
   xfs_quota -x -c "limit -p bsoft=0 bhard=0 $PID" "{{ .BasePath }}"
-  rm {{ .ProjectIDFile }} || true
+  rm {{ .ProjectIDFile }}
 fi
-rm -rf {{ .ProjectPath }} || true
 	`
 	tmpl, err := template.New("").Parse(cmd)
 	if err != nil {
