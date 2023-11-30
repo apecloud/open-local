@@ -1,11 +1,11 @@
 package csi
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/alibaba/open-local/pkg/utils"
-	"golang.org/x/sys/unix"
 	mountutils "k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
 )
@@ -38,9 +38,8 @@ func (tool *osTool) Stat(name string) (os.FileInfo, error) {
 }
 
 func (tool *osTool) MkdirAll(path string, perm os.FileMode) error {
-	oldMask := unix.Umask(0o000)
-	defer unix.Umask(oldMask)
-	return os.MkdirAll(path, perm)
+	_, err := tool.RunShellCommand(fmt.Sprintf("umask 000 && mkdir -p %s -m %o", path, perm))
+	return err
 }
 
 func (tool *osTool) IsBlockDevice(fullPath string) (bool, error) {
