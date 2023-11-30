@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 )
 
 type CgroupDriverType string
@@ -21,11 +20,28 @@ const (
 	KubeRootNameCgroupfs       = "kubepods/"
 	KubeBurstableNameCgroupfs  = "burstable/"
 	KubeBesteffortNameCgroupfs = "besteffort/"
+
+	CgroupV1 = "cgroupv1"
+	CgroupV2 = "cgroupv2"
+)
+
+var (
+	CgroupDriverTypes = []CgroupDriverType{Cgroupfs, Systemd}
+
+	QOSClasses = []corev1.PodQOSClass{
+		corev1.PodQOSGuaranteed,
+		corev1.PodQOSBurstable,
+		corev1.PodQOSBestEffort,
+	}
 )
 
 func (c CgroupDriverType) Validate() bool {
-	s := string(c)
-	return s == string(Cgroupfs) || s == string(Systemd)
+	for _, t := range CgroupDriverTypes {
+		if c == t {
+			return true
+		}
+	}
+	return false
 }
 
 type formatter struct {
@@ -37,6 +53,16 @@ type formatter struct {
 
 	PodIDParser       func(basename string) (string, error)
 	ContainerIDParser func(basename string) (string, error)
+}
+
+func (f *formatter) GetBlkioPath(cgroupVersion string, cgroupFsPath string, qos corev1.PodQOSClass, podUID string) string {
+	switch cgroupVersion {
+	case CgroupV1:
+		return fmt.Sprintf("%s/blkio/%s%s%s", cgroupFsPath, f.ParentDir, f.QOSDirFn(qos), f.PodDirFn(qos, podUID))
+	case CgroupV2:
+		return fmt.Sprintf("%s/%s%s%s", cgroupFsPath, f.ParentDir, f.QOSDirFn(qos), f.PodDirFn(qos, podUID))
+	}
+	return ""
 }
 
 var cgroupPathFormatterInSystemd = formatter{
@@ -168,16 +194,13 @@ var cgroupPathFormatterInCgroupfs = formatter{
 	},
 }
 
-// default use Systemd cgroup path format
-var CgroupPathFormatter = cgroupPathFormatterInSystemd
-
-func SetupCgroupPathFormatter(driver CgroupDriverType) {
+func GetCgroupPathFormatter(driver CgroupDriverType) *formatter {
 	switch driver {
 	case Systemd:
-		CgroupPathFormatter = cgroupPathFormatterInSystemd
+		return &cgroupPathFormatterInSystemd
 	case Cgroupfs:
-		CgroupPathFormatter = cgroupPathFormatterInCgroupfs
+		return &cgroupPathFormatterInCgroupfs
 	default:
-		klog.Warningf("cgroup driver formatter not supported: '%s'", string(driver))
+		return nil
 	}
 }

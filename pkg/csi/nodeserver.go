@@ -17,11 +17,9 @@ limitations under the License.
 package csi
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -35,9 +33,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	log "k8s.io/klog/v2"
 	mountutils "k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
@@ -49,7 +45,9 @@ type nodeServer struct {
 	inFlight             *InFlight
 	osTool               OSTool
 
-	options *driverOptions
+	options       *driverOptions
+	cgroupVersion string
+	cgroupDriver  utils.CgroupDriverType
 }
 
 func newNodeServer(options *driverOptions) *nodeServer {
@@ -68,6 +66,11 @@ func newNodeServer(options *driverOptions) *nodeServer {
 		osTool:               NewOSTool(),
 		options:              options,
 	}
+
+	ns.cgroupVersion = ns.detectCgroupVersion()
+	ns.cgroupDriver = ns.detectCgroupDriver()
+
+	log.Infof("detected cgroup version: %s, driver: %s", ns.cgroupVersion, ns.cgroupDriver)
 
 	return ns
 }
@@ -143,21 +146,37 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	volCap := req.GetVolumeCapability()
 	switch volumeType {
 	case string(pkg.VolumeTypeLVM):
+		var devicePath string
+		var err error
 		switch volCap.GetAccessType().(type) {
 		case *csi.VolumeCapability_Block:
-			err := ns.mountLvmBlock(ctx, req)
+			devicePath, err = ns.mountLvmBlock(ctx, req)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "NodePublishVolume(mountLvmBlock): fail to mount lvm volume %s with path %s: %s", volumeID, targetPath, err.Error())
 			}
 		case *csi.VolumeCapability_Mount:
-			err := ns.mountLvmFS(ctx, req)
+			devicePath, err = ns.mountLvmFS(ctx, req)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "NodePublishVolume(mountLvmFS): fail to mount lvm volume %s with path %s: %s", volumeID, targetPath, err.Error())
 			}
 		}
-		if err := ns.setIOThrottling(ctx, req); err != nil {
-			return nil, err
+		stat := syscall.Stat_t{}
+		err = syscall.Stat(devicePath, &stat)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "NodePublishVolume: fail to stat device path volume %s with path %s, error: %s", volumeID, devicePath, err.Error())
 		}
+		maj := stat.Rdev / 256
+		min := stat.Rdev % 256
+		containsValue, bps, iops, err := requireThrottleIO(req.VolumeContext)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "NodePublishVolume: fail to get io throttling info from parameters, error: %s", err.Error())
+		}
+		if containsValue {
+			if err := ns.setIOThrottling(ctx, req, bps, iops, uint32(maj), uint32(min)); err != nil {
+				return nil, err
+			}
+		}
+
 	case string(pkg.VolumeTypeMountPoint):
 		err := ns.mountMountPointVolume(ctx, req)
 		if err != nil {
@@ -179,8 +198,6 @@ func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	case string(pkg.VolumeTypeHostPath):
 		impl := &hostPathNsImpl{common: ns}
 		return impl.NodePublishVolume(ctx, req)
-	default:
-		return nil, status.Errorf(codes.Internal, "NodePublishVolume: unsupported volume %s with type %s", volumeID, volumeType)
 	}
 
 	log.Infof("NodePublishVolume: mount local volume %s to %s successfully", volumeID, targetPath)
@@ -463,157 +480,106 @@ func (ns *nodeServer) resizeVolume(ctx context.Context, req *csi.NodeExpandVolum
 	return &csi.NodeExpandVolumeResponse{}, nil
 }
 
-func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishVolumeRequest) (err error) {
-	volumeID := req.VolumeId
-
-	containsValue, bps, iops, err := requireThrottleIO(req.VolumeContext)
-
+// Detect cgroup version by using stat cmd
+func (ns *nodeServer) detectCgroupVersion() string {
+	cgroupVersion := utils.CgroupV1
+	// https://kubernetes.io/docs/concepts/architecture/cgroups/#check-cgroup-version
+	cmd := fmt.Sprintf("stat -fc %%T %s/fs/cgroup", ns.options.sysPath)
+	output, err := ns.osTool.RunShellCommand(cmd)
 	if err != nil {
-		log.Errorf("invalid bps or iops parameter in storage class: %s", err)
-		return err
+		log.Errorf("detectCgroupVersion exec cmd '%s' failed: %s, output: %s, falling back to use %s",
+			cmd, err.Error(), output, cgroupVersion)
+		return cgroupVersion
 	}
-	if !containsValue {
-		log.Infof("no need to set throttle for volume %s", volumeID)
-		return nil
+	// For cgroup v2, the output is cgroup2fs.
+	// For cgroup v1, the output is tmpfs.
+	if strings.Contains(output, "tmpfs") {
+		cgroupVersion = utils.CgroupV1
+	} else if strings.Contains(output, "cgroup2fs") {
+		cgroupVersion = utils.CgroupV2
+	} else {
+		log.Errorf("detectCgroupVersion unrecognized device type: %s, falling back to use %s",
+			output, cgroupVersion)
 	}
-	volCap := req.GetVolumeCapability()
-	targetPath := req.GetTargetPath()
-	// get pod
-	var pod v1.Pod
-	var podUID string
-	switch volCap.GetAccessType().(type) {
-	case *csi.VolumeCapability_Block:
-		// /var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/yoda-c018ff81-d346-452e-b7b8-a45f1d1c230e/76cf946e-d074-4455-a272-4d3a81264fab
-		podUID = strings.Split(targetPath, "/")[10]
-	case *csi.VolumeCapability_Mount:
-		// /var/lib/kubelet/pods/2a7bbb9c-c915-4006-84d7-0e3ac9d8d70f/volumes/kubernetes.io~csi/yoda-70597cb6-c08b-4bbb-8d41-c4afcfa91866/mount
-		podUID = strings.Split(targetPath, "/")[5]
-	}
-	log.Infof("pod(volume id %s) uuid is %s", volumeID, podUID)
-	namespace := req.VolumeContext[localtype.PVCNameSpace]
-	// set ResourceVersion to 0
-	// https://arthurchiao.art/blog/k8s-reliability-list-data-zh/
-	pods, err := ns.options.kubeclient.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{ResourceVersion: "0"})
-	for _, podItem := range pods.Items {
-		if podItem.UID == types.UID(podUID) {
-			pod = podItem
+	return cgroupVersion
+}
+
+// Detect cgroup driver by searching the group path of the current Pod
+// in the cgroup directory tree
+func (ns *nodeServer) detectCgroupDriver() utils.CgroupDriverType {
+	var candidates []utils.CgroupDriverType
+	for _, driver := range utils.CgroupDriverTypes {
+		f := utils.GetCgroupPathFormatter(driver)
+		if f == nil {
+			log.Warningf("no CgroupPathFormatter available for driver %s", driver)
+			continue
 		}
-	}
-	if err != nil {
-		return status.Errorf(codes.Internal, "NodePublishVolume: failed to get pod(uuid: %s): %s", podUID, err.Error())
-	}
-	// pod qosClass and blkioPath
-	qosClass := pod.Status.QOSClass
-
-	// get cgroup version
-	getCgroupVersion := func() string {
-		var fsPath string = "/proc/filesystems"
-		// by default, return "v1"
-		var cgroupVersion string = "v1"
-
-		fs, err := os.Open(fsPath)
-		if err != nil {
-			log.Errorf("get cgroup version from %s failed: %s", fsPath, err.Error())
-			return cgroupVersion
-		}
-		defer fs.Close()
-
-		fsScanner := bufio.NewScanner(fs)
-		fsScanner.Split(bufio.ScanLines)
-
-		cgroup2 := "cgroup2"
-
-		for fsScanner.Scan() {
-			if strings.Contains(fsScanner.Text(), cgroup2) {
-				cgroupVersion = "v2"
+		for _, qosClass := range utils.QOSClasses {
+			// Pattern of cgroupv1: /sys/fs/cgroup/$(resType)/$(parentDir)/$(qosDir)/$(podDir)/...
+			// Pattern of cgroupv2: /sys/fs/cgroup/$(parentDir)/$(qosDir)/$(podDir)/...
+			// So the common pattern is $(parentDir)/$(qosDir)/$(podDir)
+			commonPattern := f.ParentDir + f.QOSDirFn(qosClass) + f.PodDirFn(qosClass, ns.options.selfPodUID)
+			cmd := fmt.Sprintf(`find %s/fs/cgroup -maxdepth 4 -type d | grep -q "%s"; echo "$?"`,
+				ns.options.sysPath, commonPattern)
+			output, err := ns.osTool.RunShellCommand(cmd)
+			if err != nil {
+				log.Errorf("detectCgroupDriver exec cmd '%s' failed: %s, output: %s",
+					cmd, err.Error(), output)
+				continue
+			}
+			if strings.TrimSpace(output) == "0" {
+				candidates = append(candidates, driver)
 				break
 			}
 		}
-
-		if err := fsScanner.Err(); err != nil {
-			log.Errorf("scan for cgroup version from %s err:%s", fsPath, err.Error())
-		}
-
-		return cgroupVersion
 	}
-
-	getBlkioPath := func(cgroupVersion string) string {
-		var blkioPath string
-		if cgroupVersion == "v1" { // for cgroup v1
-			blkioPath = fmt.Sprintf("%s/fs/cgroup/blkio/%s%s%s", ns.options.sysPath, utils.CgroupPathFormatter.ParentDir, utils.CgroupPathFormatter.QOSDirFn(qosClass), utils.CgroupPathFormatter.PodDirFn(qosClass, podUID))
-		} else { // for higher cgroup version, current version = v2
-			blkioPath = fmt.Sprintf("%s/fs/cgroup/%s%s%s", ns.options.sysPath, utils.CgroupPathFormatter.ParentDir, utils.CgroupPathFormatter.QOSDirFn(qosClass), utils.CgroupPathFormatter.PodDirFn(qosClass, podUID))
-		}
-		return blkioPath
+	cgroupDriver := utils.Systemd
+	if suggested := utils.CgroupDriverType(ns.options.driverName); suggested.Validate() {
+		cgroupDriver = suggested
 	}
-
-	makeBlkioCmdstr := func(cgroupVersion string, blkioPath string, maj uint64, min uint64, iops int64, bps int64) []string {
-		var cmdArray []string
-		var cmdstr string
-
-		if cgroupVersion == "v1" {
-			if iops > 0 {
-				cmdstr = fmt.Sprintf("echo %s > %s", fmt.Sprintf("%d:%d %d", maj, min, iops), fmt.Sprintf("%s/%s", blkioPath, localtype.IOPSReadFile))
-				cmdArray = append(cmdArray, cmdstr)
-				cmdstr = fmt.Sprintf("echo %s > %s", fmt.Sprintf("%d:%d %d", maj, min, iops), fmt.Sprintf("%s%s", blkioPath, localtype.IOPSWriteFile))
-				cmdArray = append(cmdArray, cmdstr)
-			}
-
-			if bps > 0 {
-				cmdstr = fmt.Sprintf("echo %s > %s", fmt.Sprintf("%d:%d %d", maj, min, bps), fmt.Sprintf("%s%s", blkioPath, localtype.BPSReadFile))
-				cmdArray = append(cmdArray, cmdstr)
-				cmdstr = fmt.Sprintf("echo %s > %s", fmt.Sprintf("%d:%d %d", maj, min, bps), fmt.Sprintf("%s%s", blkioPath, localtype.BPSWriteFile))
-				cmdArray = append(cmdArray, cmdstr)
-			}
-		} else {
-			var iopsstr string
-			var bpsstr string
-			if iops > 0 {
-				iopsstr = fmt.Sprintf("riops=%d wiops=%d", iops, iops)
-			} else {
-				iopsstr = "riops=max wiops=max"
-			}
-
-			if bps > 0 {
-				bpsstr = fmt.Sprintf("rbps=%d wbps=%d", bps, bps)
-			} else {
-				bpsstr = "rbps=max wbps=max"
-			}
-
-			if iops > 0 || bps > 0 {
-				cmdstr = fmt.Sprintf("echo %s > %s", fmt.Sprintf("%d:%d %s %s", maj, min, iopsstr, bpsstr), fmt.Sprintf("%s/%s", blkioPath, localtype.V2_IOFILE))
-				cmdArray = append(cmdArray, cmdstr)
-			}
-		}
-
-		return cmdArray
+	if len(candidates) != 1 {
+		log.Warningf("detectCgroupDriver cgroup driver candidate (%q) is not unique, "+
+			"falling back to use \"%s\" as suggested", candidates, cgroupDriver)
+	} else {
+		cgroupDriver = candidates[0]
 	}
+	return cgroupDriver
+}
 
-	cgroupVersion := getCgroupVersion()
-	blkioPath := getBlkioPath(cgroupVersion)
+func (ns *nodeServer) setIOThrottling(ctx context.Context, req *csi.NodePublishVolumeRequest, bps, iops uint64, maj, min uint32) (err error) {
+	volumeID := req.VolumeId
 
-	log.Infof("pod(volume id %s) qosClass: %s", volumeID, qosClass)
-	log.Infof("pod(volume id %s) blkio path: %s", volumeID, blkioPath)
-	// get lv lvpath
-	// todo: not support device kind
-	lvpath, err := ns.createLV(ctx, req)
+	// get pod
+	podUID := req.VolumeContext[pkg.PodUID]
+	podName := req.VolumeContext[pkg.PodName]
+	podNamespace := req.VolumeContext[pkg.PodNamespace]
+	if podUID == "" || podName == "" || podNamespace == "" {
+		return fmt.Errorf("pod uid, name or namespace is empty, please make sure CSIDriver.spec.podInfoOnMount is set to true")
+	}
+	log.Infof("pod(volume id %s) %s/%s uid: %s", volumeID, podNamespace, podName, podUID)
+	// set ResourceVersion to 0
+	// https://arthurchiao.art/blog/k8s-reliability-list-data-zh/
+	pod, err := ns.options.kubeclient.CoreV1().Pods(podNamespace).Get(ctx, podName, metav1.GetOptions{ResourceVersion: "0"})
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to get lv path %s: %s", volumeID, err.Error())
+		return fmt.Errorf("failed to get pod %s/%s, error: %s", podNamespace, podName, err.Error())
 	}
-	stat := syscall.Stat_t{}
-	_ = syscall.Stat(lvpath, &stat)
-	maj := uint64(stat.Rdev / 256)
-	min := uint64(stat.Rdev % 256)
-	log.Infof("volume %s maj:min: %d:%d", volumeID, maj, min)
-	log.Infof("volume %s path: %s", volumeID, lvpath)
+
+	// get blkioPath
+	qosClass := pod.Status.QOSClass
+	cgroupVersion := ns.cgroupVersion
+	formatter := utils.GetCgroupPathFormatter(ns.cgroupDriver)
+	blkioPath := formatter.GetBlkioPath(cgroupVersion, fmt.Sprintf("%s/fs/cgroup", ns.options.sysPath), qosClass, podUID)
+	if blkioPath == "" {
+		return fmt.Errorf("failed to get blkio path for cgroup version %s", cgroupVersion)
+	}
+	log.Infof("pod(volume id %s) blkio path: %s", volumeID, blkioPath)
+
 	if iops > 0 || bps > 0 {
-		log.Infof("volume %s iops: %d bps: %d", volumeID, iops, bps)
-		cmdArray := makeBlkioCmdstr(cgroupVersion, blkioPath, maj, min, iops, bps)
-		for _, cmd := range cmdArray {
-			_, err := exec.Command("sh", "-c", cmd).CombinedOutput()
-			if err != nil {
-				return status.Errorf(codes.Internal, "failed to write blkio file cmd:%s error:%s", cmd, err.Error())
-			}
+		log.Infof("volume %s maj:min: %d:%d iops: %d bps: %d", volumeID, maj, min, iops, bps)
+		setter := utils.NewCgroupSetter(cgroupVersion, blkioPath)
+		err := setter.SetBlkio(maj, min, uint64(iops), uint64(bps))
+		if err != nil {
+			return status.Errorf(codes.Internal, "set blkio error:%s", err.Error())
 		}
 	}
 

@@ -81,6 +81,7 @@ func Start(opt *csiOption) error {
 		opt.NodeID,
 		opt.Endpoint,
 		csi.WithSysPath(opt.SysPath),
+		csi.WithSelfPodUID(opt.SelfPodUID),
 		csi.WithCgroupDriver(opt.CgroupDriver),
 		csi.WithGrpcConnectionTimeout(opt.GrpcConnectionTimeout),
 		csi.WithExtenderSchedulerNames(opt.ExtenderSchedulerNames),
