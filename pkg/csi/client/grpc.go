@@ -18,6 +18,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -44,6 +45,7 @@ type Connection interface {
 	ExpandVolume(ctx context.Context, volGroup string, volumeID string, size uint64) error
 	CleanPath(ctx context.Context, path string, includeItself bool) error
 	CleanDevice(ctx context.Context, device string) error
+	DoCommand(ctx context.Context, commands []string) (string, error)
 	Close() error
 }
 
@@ -282,6 +284,23 @@ func (c *workerConnection) ExpandVolume(ctx context.Context, volGroup string, vo
 	}
 	log.V(6).Infof("Expand Lvm with result: %v", response.GetCommandOutput())
 	return err
+}
+
+func (c *workerConnection) DoCommand(ctx context.Context, commands []string) (string, error) {
+	client := lib.NewLVMClient(c.conn)
+	req := lib.DoCommandRequest{
+		Commands: commands,
+	}
+	response, err := client.DoCommand(ctx, &req)
+	if err != nil {
+		log.Errorf("DoCommand with error: %v", err.Error())
+		return "", err
+	}
+	log.V(6).Infof("DoCommand with result: %v", response.GetCommandOutput())
+	if len(response.Error) != 0 {
+		err = errors.New(response.Error)
+	}
+	return response.CommandOutput, err
 }
 
 func logGRPC(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {

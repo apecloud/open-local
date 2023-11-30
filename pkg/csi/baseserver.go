@@ -105,6 +105,7 @@ func getValue[T any](ctx context.Context, key contextKey[T]) *T {
 var (
 	ctxKeyCreateVolume = contextKey[createVolumeContext]{"createVolume"}
 	ctxKeyDeleteVolume = contextKey[deleteVolumeContext]{"deleteVolume"}
+	ctxKeyExpandVolume = contextKey[expandVolumeContext]{"expandVolume"}
 )
 
 type createVolumeContext struct {
@@ -115,4 +116,8 @@ type createVolumeContext struct {
 type deleteVolumeContext struct {
 	pv       *corev1.PersistentVolume
 	nodeName string
+}
+
+type expandVolumeContext struct {
+	pv *corev1.PersistentVolume
 }

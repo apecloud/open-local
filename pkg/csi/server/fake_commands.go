@@ -85,3 +85,6 @@ func (fake *FakeCommands) CleanPath(ctx context.Context, path string, includeIts
 func (fake *FakeCommands) CleanDevice(ctx context.Context, device string) (string, error) {
 	return "CleanDevice", nil
 }
+func (fake *FakeCommands) DoCommand(ctx context.Context, commands []string) (string, error) {
+	return "DoCommand", nil
+}

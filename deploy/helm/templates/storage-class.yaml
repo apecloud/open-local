@@ -107,7 +107,7 @@ metadata:
 provisioner: {{ .Values.driver }}
 parameters:
   volumeType: "HostPath"
-  hostPath: "/mnt/{{ .Values.name }}/localpvs"
+  hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
@@ -121,7 +121,7 @@ metadata:
 provisioner: {{ .Values.driver }}
 parameters:
   volumeType: "HostPath"
-  hostPath: "/mnt/{{ .Values.name }}/localpvs"
+  hostPath: "/mnt/{{ .Values.name }}/hostpathpvs"
   enforceCapacityLimit: "true"
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
