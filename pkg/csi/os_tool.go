@@ -1,6 +1,7 @@
 package csi
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -37,7 +38,8 @@ func (tool *osTool) Stat(name string) (os.FileInfo, error) {
 }
 
 func (tool *osTool) MkdirAll(path string, perm os.FileMode) error {
-	return os.MkdirAll(path, perm)
+	_, err := tool.RunShellCommand(fmt.Sprintf("umask 000 && mkdir -p %s -m %o", path, perm))
+	return err
 }
 
 func (tool *osTool) IsBlockDevice(fullPath string) (bool, error) {
