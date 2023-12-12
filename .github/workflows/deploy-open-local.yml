@@ -1,0 +1,101 @@
+name: Test Suit
+
+on:
+  workflow_call:
+    inputs:
+      k8s-cluster-name:
+        description: 'k8s cluster name'
+        type: string
+        required: true
+        default: ''
+      release-version:
+        description: "The release version of open-local"
+        type: string
+        required: false
+        default: ''
+    outputs:
+      deploy-result:
+        description: "deploy result"
+        value: ${{ jobs.deploy-open-local.outputs.deploy-result }}
+
+
+env:
+  CLOUD_PROVIDER: ${{ vars.CLOUD_PROVIDER }}
+  K8S_REGION: ${{ vars.K8S_REGION }}
+  GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-open-local:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-result: ${{ steps.deploy_open_local.outputs.deploy-result }}
+    steps:
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.13.1"
+
+      - uses: aws-actions/setup-sam@v2
+        if: ${{ env.CLOUD_PROVIDER == 'eks' }}
+        with:
+          use-installer: true
+
+      - uses: aws-actions/configure-aws-credentials@v2.2.0
+        if: ${{ env.CLOUD_PROVIDER == 'eks' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: "${{ env.K8S_REGION }}"
+
+      - name: get eks credential
+        if: ${{ inputs.eks-cluster-name != '' }}
+        run: |
+          aws eks update-kubeconfig --region ${{ env.K8S_REGION }} --name ${{ inputs.eks-cluster-name }}
+
+      - if: ${{ env.CLOUD_PROVIDER == 'gke' && env.GOOGLE_CREDENTIALS != '' }}
+        id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ env.GOOGLE_CREDENTIALS }}'
+
+      - name: Setup gcloud
+        if: ${{ env.CLOUD_PROVIDER == 'gke' }}
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: setup gke-gcloud-auth-plugin
+        if: ${{ env.CLOUD_PROVIDER == 'gke' }}
+        uses: simenandre/setup-gke-gcloud-auth-plugin@v1
+
+      - name: get gke credential
+        if: ${{ env.CLOUD_PROVIDER == 'gke' && inputs.k8s-cluster-name != '' }}
+        run: |
+          gcloud container clusters get-credentials ${{ inputs.k8s-cluster-name }} \
+              --zone ${{ env.K8S_REGION }} --project ${{ vars.GOOGLE_PROJECT }}
+
+      - name: checkout open-local
+        uses: actions/checkout@v4
+
+      - name: helm install open-local
+        id: deploy_open_local
+        run: |
+          if [[ -n "$release-version" ]]; then
+              helm repo add helm-charts https://apecloud.github.io/helm-charts
+              helm upgrade --install open-local helm-charts/open-local --version $release-version
+          else
+              helm upgrade --install open-local deploy/helm
+          fi
+          deploy_ret=$?
+          if [[ "$deploy_ret" != "0" ]]; then
+              echo deploy-result=[FAILED] >> $GITHUB_OUTPUT
+              exit 1
+          else
+              echo deploy-result=[PASSED] >> $GITHUB_OUTPUT
+          fi

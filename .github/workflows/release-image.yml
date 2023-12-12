@@ -41,3 +41,11 @@ jobs:
       DOCKERFILE_PATH: "./Dockerfile"
       APECD_REF: "v0.1.38"
     secrets: inherit
+
+  test-e2e:
+    if: ${{ github.event.action == 'published' }}
+    needs: [ release-version, release-image ]
+    uses: ./.github/workflows/test-e2e.yml
+    with:
+      release-version: "${{ needs.release-version.outputs.release-version }}"
+    secrets: inherit
