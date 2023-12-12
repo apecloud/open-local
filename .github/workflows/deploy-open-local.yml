@@ -42,6 +42,9 @@ jobs:
         with:
           version: "v3.13.1"
 
+      - name: checkout open-local
+        uses: actions/checkout@v4
+
       - uses: aws-actions/setup-sam@v2
         if: ${{ env.CLOUD_PROVIDER == 'eks' }}
         with:
@@ -79,9 +82,6 @@ jobs:
         run: |
           gcloud container clusters get-credentials ${{ inputs.k8s-cluster-name }} \
               --zone ${{ env.K8S_REGION }} --project ${{ vars.GOOGLE_PROJECT }}
-
-      - name: checkout open-local
-        uses: actions/checkout@v4
 
       - name: helm install open-local
         id: deploy_open_local
