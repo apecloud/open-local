@@ -138,6 +138,7 @@ jobs:
     needs: [ terraform-init-k8s, kubeblocks-e2e ]
     uses: apecloud/apecloud-cd/.github/workflows/terraform-destroy.yml@v0.1.45
     with:
+      cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
       artifact-name: "open-local-gke-${{ github.sha }}"
       region: "${{ vars.K8S_REGION }}"
     secrets: inherit
