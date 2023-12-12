@@ -133,7 +133,7 @@ jobs:
 
   terraform-destroy-k8s:
     if: ${{ always() }}
-    needs: [ terraform-init-k8s, test-apecloud-mysql ]
+    needs: [ terraform-init-k8s, kubeblocks-e2e ]
     uses: apecloud/apecloud-cd/.github/workflows/terraform-destroy.yml@v0.1.44
     with:
       artifact-name: "open-local-gke-${{ github.sha }}"
