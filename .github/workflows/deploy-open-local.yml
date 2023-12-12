@@ -1,4 +1,4 @@
-name: Test Suit
+name: Deploy Open-local
 
 on:
   workflow_call:
