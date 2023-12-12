@@ -1,6 +1,7 @@
 name: Test KubeBlocks E2E With Open-local
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       release-version:
@@ -48,7 +49,7 @@ on:
         required: true
         default: 'apecloud-mysql'
 
-run-name: Test open-local:${{ inputs.release-version }} ${{ inputs.storage-class }} On KubeBlocks:${{ inputs.kubeblocks-version }} ${{ inputs.test_type }}
+run-name: Test open-local:${{ inputs.release-version }} open-local-hostpath On KubeBlocks:v0.7.1 apecloud-mysql
 
 env:
   GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -81,11 +82,12 @@ jobs:
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
       region: "${{ vars.K8S_REGION }}"
-      release-version: "${{ inputs.kubeblocks-version }}"
+      release-version: "v0.7.1"
       test-type: "0"
       test-type-name: "install-kubeblocks"
-      test-args: "--config-s3 true --upgrade true --check-addon false --open-local ${{ inputs.storage-class }}"
+      test-args: "--config-s3 true --upgrade true --check-addon false --open-local open-local-hostpath"
       k8s-cluster-name: ${{ needs.terraform-init-k8s.outputs.k8s-cluster-name }}
+      branch-name: "support/enable_open_local_on_cloud_k8s"
     secrets: inherit
 
   kubeblocks-e2e:
@@ -95,11 +97,11 @@ jobs:
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
       region: "${{ vars.K8S_REGION }}"
-      release-version: "${{ inputs.kubeblocks-version }}"
-      test-type: "${{ inputs.test_type }}"
-      test-type-name: "${{ inputs.test_type }}"
-      test-args: "--open-local ${{ inputs.storage-class }}"
+      release-version: "v0.7.1"
+      test-type: "apecloud-mysql"
+      test-type-name: "apecloud-mysql"
       k8s-cluster-name: ${{ needs.terraform-init-k8s.outputs.k8s-cluster-name }}
+      branch-name: "support/enable_open_local_on_cloud_k8s"
     secrets: inherit
 
   send-message:
@@ -116,7 +118,7 @@ jobs:
         run: |
           TEST_RESULT="deploy-open-local|${{ needs.deploy-open-local.outputs.deploy-result }}"
           TEST_RESULT="${TEST_RESULT}##install-kubeblocks|${{ needs.install-kubeblocks.outputs.test-result }}"
-          TEST_RESULT="${TEST_RESULT}##${{ inputs.test_type }}|${{ needs.kubeblocks-e2e.outputs.test-result }}"
+          TEST_RESULT="${TEST_RESULT}##apecloud-mysql|${{ needs.kubeblocks-e2e.outputs.test-result }}"
           
           TEST_RESULT=$( bash .github/utils/utils.sh --type 12 \
               --github-repo "${{ github.repository }}" \
@@ -125,7 +127,7 @@ jobs:
               --run-id "$GITHUB_RUN_ID" )
           
           date_ret=$(date +%Y-%m-%d-%T)
-          test_title="[${{ inputs.release-version }}] Test open-local ${{ inputs.storage-class }} on KubeBlocks:${{ inputs.kubeblocks-version }} ${{ inputs.test_type }}  [${date_ret}]"
+          test_title="[${{ inputs.release-version }}] Test open-local open-local-hostpath on KubeBlocks:v0.7.1 apecloud-mysql  [${date_ret}]"
           python3 .github/utils/send_mesage.py \
               --url ${{ vars.TEST_BOT_WEBHOOK }} \
               --title "$test_title" \
