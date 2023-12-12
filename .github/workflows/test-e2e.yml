@@ -76,8 +76,8 @@ jobs:
     secrets: inherit
 
   install-kubeblocks:
-    needs: [ terraform-init-k8s ]
-    if: ${{ needs.terraform-init-k8s.result == 'success' }}
+    needs: [ terraform-init-k8s, deploy-open-local ]
+    if: ${{ needs.deploy-open-local.result == 'success' }}
     uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.44
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
@@ -91,8 +91,8 @@ jobs:
     secrets: inherit
 
   kubeblocks-e2e:
-    needs: [ deploy-open-local, install-kubeblocks ]
-    if: ${{ needs.deploy-open-local.result == 'success' && needs.install-kubeblocks.result == 'success' }}
+    needs: [ terraform-init-k8s, install-kubeblocks ]
+    if: ${{ needs.install-kubeblocks.result == 'success' }}
     uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.44
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
