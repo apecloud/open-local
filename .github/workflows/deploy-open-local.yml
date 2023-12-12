@@ -42,13 +42,13 @@ jobs:
         with:
           version: "v3.13.1"
 
+      - name: checkout open-local
+        uses: actions/checkout@v4
+
       - uses: aws-actions/setup-sam@v2
         if: ${{ env.CLOUD_PROVIDER == 'eks' }}
         with:
           use-installer: true
-
-      - name: checkout open-local
-        uses: actions/checkout@v4
 
       - uses: aws-actions/configure-aws-credentials@v2.2.0
         if: ${{ env.CLOUD_PROVIDER == 'eks' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
