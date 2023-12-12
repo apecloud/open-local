@@ -86,9 +86,9 @@ jobs:
       - name: helm install open-local
         id: deploy_open_local
         run: |
-          if [[ -n "$release-version" ]]; then
+          if [[ -n "${{ inputs.release-version }}" ]]; then
               helm repo add helm-charts https://apecloud.github.io/helm-charts
-              helm upgrade --install open-local helm-charts/open-local --version $release-version
+              helm upgrade --install open-local helm-charts/open-local --version ${{ inputs.release-version }}
           else
               helm upgrade --install open-local deploy/helm
           fi
