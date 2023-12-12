@@ -47,6 +47,9 @@ jobs:
         with:
           use-installer: true
 
+      - name: checkout open-local
+        uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v2.2.0
         if: ${{ env.CLOUD_PROVIDER == 'eks' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         with:
@@ -80,15 +83,12 @@ jobs:
           gcloud container clusters get-credentials ${{ inputs.k8s-cluster-name }} \
               --zone ${{ env.K8S_REGION }} --project ${{ vars.GOOGLE_PROJECT }}
 
-      - name: checkout open-local
-        uses: actions/checkout@v4
-
       - name: helm install open-local
         id: deploy_open_local
         run: |
-          if [[ -n "$release-version" ]]; then
+          if [[ -n "${{ inputs.release-version }}" ]]; then
               helm repo add helm-charts https://apecloud.github.io/helm-charts
-              helm upgrade --install open-local helm-charts/open-local --version $release-version
+              helm upgrade --install open-local helm-charts/open-local --version ${{ inputs.release-version }}
           else
               helm upgrade --install open-local deploy/helm
           fi
