@@ -55,7 +55,7 @@ env:
 
 jobs:
   terraform-init-k8s:
-    uses: apecloud/apecloud-cd/.github/workflows/terraform-init.yml@v0.1.44
+    uses: apecloud/apecloud-cd/.github/workflows/terraform-init.yml@v0.1.45
     with:
       artifact-name: "open-local-gke-${{ github.sha }}"
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
@@ -77,7 +77,7 @@ jobs:
   install-kubeblocks:
     needs: [ terraform-init-k8s, deploy-open-local ]
     if: ${{ needs.deploy-open-local.result == 'success' }}
-    uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.44
+    uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.45
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
       region: "${{ vars.K8S_REGION }}"
@@ -91,7 +91,7 @@ jobs:
   kubeblocks-e2e:
     needs: [ terraform-init-k8s, install-kubeblocks ]
     if: ${{ needs.install-kubeblocks.result == 'success' }}
-    uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.44
+    uses: apecloud/apecloud-cd/.github/workflows/test-kbcli.yml@v0.1.45
     with:
       cloud-provider: "${{ vars.CLOUD_PROVIDER }}"
       region: "${{ vars.K8S_REGION }}"
@@ -134,7 +134,7 @@ jobs:
   terraform-destroy-k8s:
     if: ${{ always() }}
     needs: [ terraform-init-k8s, kubeblocks-e2e ]
-    uses: apecloud/apecloud-cd/.github/workflows/terraform-destroy.yml@v0.1.44
+    uses: apecloud/apecloud-cd/.github/workflows/terraform-destroy.yml@v0.1.45
     with:
       artifact-name: "open-local-gke-${{ github.sha }}"
       region: "${{ vars.K8S_REGION }}"
