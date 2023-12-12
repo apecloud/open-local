@@ -3,15 +3,15 @@ name: Deploy Open-local
 on:
   workflow_call:
     inputs:
+      release-version:
+        description: "Install open-local specify release version or empty from code"
+        type: string
+        required: false
+        default: ''
       k8s-cluster-name:
         description: 'k8s cluster name'
         type: string
         required: true
-        default: ''
-      release-version:
-        description: "The release version of open-local"
-        type: string
-        required: false
         default: ''
     outputs:
       deploy-result:
