@@ -87,7 +87,6 @@ jobs:
       test-type-name: "install-kubeblocks"
       test-args: "--config-s3 true --upgrade true --check-addon false --open-local open-local-hostpath"
       k8s-cluster-name: ${{ needs.terraform-init-k8s.outputs.k8s-cluster-name }}
-      branch-name: "support/enable_open_local_on_cloud_k8s"
     secrets: inherit
 
   kubeblocks-e2e:
@@ -100,8 +99,8 @@ jobs:
       release-version: "v0.7.1"
       test-type: "apecloud-mysql"
       test-type-name: "apecloud-mysql"
+      test-args: "--config-s3 true --upgrade true --check-addon false --open-local open-local-hostpath"
       k8s-cluster-name: ${{ needs.terraform-init-k8s.outputs.k8s-cluster-name }}
-      branch-name: "support/enable_open_local_on_cloud_k8s"
     secrets: inherit
 
   send-message:
